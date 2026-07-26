@@ -1,0 +1,25 @@
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# Chat logs (rolling runtime artifacts)
+chat.*.log.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.python-version
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Screenshots / temp output
+/tmp/
+*.jpg
+*.png
