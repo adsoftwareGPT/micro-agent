@@ -6,6 +6,22 @@ from typing import Optional
 import requests
 from PIL import Image
 
+# ── Load .env (so keys stay out of source but local runs "just work") ───────
+# python-dotenv if available, otherwise a minimal fallback parser.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+except ImportError:
+    _env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.isfile(_env):
+        with open(_env) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if not _line or _line.startswith("#") or "=" not in _line:
+                    continue
+                _k, _, _v = _line.partition("=")
+                os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+
 # ── Config ──────────────────────────────────────────────────────────────────
 # Set PROVIDER to "zai" or "deepseek" or "openrouter" or "opencode"
 PROVIDER = "zai"
