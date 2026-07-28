@@ -202,7 +202,7 @@ Runs through `subprocess.run(..., shell=True)`, returns `stdout + stderr` trunca
 Primary path: render the URL in **Chromium over CDP** (via `cdp_fetch.py`) so JS-heavy / single-page apps work. Returns readable text with HTML stripped. If the CDP helper or a browser isn't available, it transparently falls back to a plain-HTTP fetch (`requests.Session` + browser-like headers) and a stdlib `html.parser`-based text extractor. Non-HTML bodies are returned raw. Output is capped at `TOOL_OUTPUT_MAX_CHARS`.
 
 ### `browser_action(action, ...)`
-Interactive browser control via the Chrome DevTools Protocol. Actions: `navigate`, `click` (CSS selector / point / text / inside iframe), `type`, `scroll`, `wait` (until URL or page text matches), `screenshot`, `get_state`, and `login_google` — which drives the full Google Identity Services flow (FedCM + popup + redirect) end-to-end. Implemented across `browser_action.py` and `cdp_fetch.py`/`cdp_fetch_v2.py`.
+Interactive browser control via the Chrome DevTools Protocol. Actions: `navigate`, `click` (CSS selector / point / text / inside iframe), `type`, `scroll`, `wait` (until URL or page text matches), `screenshot`, `get_state`, and `login_google` — which drives the full Google Identity Services flow (FedCM + popup + redirect) end-to-end. Implemented across `browser_action.py` and `cdp_fetch.py`.
 
 ### `ddg_search(query)`
 Returns up to 30 DuckDuckGo results, numbered, with title/URL/snippet.
@@ -239,7 +239,6 @@ microtest/
 ├── micro.py              # The entire agent (~580 LOC): loop, tools, providers
 ├── browser_action.py     # CDP-driven interactive browser automation
 ├── cdp_fetch.py          # Chromium CDP fetcher (JS rendering) for fetch_webpage
-├── cdp_fetch_v2.py       # Newer/refactored CDP fetch helpers
 ├── README.md             # This file
 ├── .env.example          # Template for API keys (safe to commit)
 ├── .env                  # Your real keys (gitignored, auto-loaded)
