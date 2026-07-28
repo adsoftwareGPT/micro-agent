@@ -23,7 +23,7 @@ except ImportError:
                 os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 
 # ── Config ──────────────────────────────────────────────────────────────────
-# Set PROVIDER to "zai" or "deepseek" or "openrouter" or "opencode"
+# Set PROVIDER to "zai" or "deepseek" or "openrouter" or "opencode" or "ollama"
 PROVIDER = "zai"
 
 ZAI_KEY = os.environ.get("ZAI_KEY", "")
@@ -41,6 +41,10 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENCODE_KEY = os.environ.get("OPENCODE_KEY", "")
 OPENCODE_MODEL = os.environ.get("OPENCODE_MODEL", "deepseek-v4-flash-free")
 OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions"
+
+OLLAMA_KEY = os.environ.get("OLLAMA_KEY", "")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "glm-5.2:cloud")
+OLLAMA_URL = "http://localhost:11434/v1/chat/completions"
 
 MAX_TOKENS = 38192
 TOOL_OUTPUT_MAX_CHARS = 350000
@@ -212,6 +216,7 @@ PROVIDERS = {
     "deepseek": {"url": DEEPSEEK_URL, "key": DEEPSEEK_KEY, "model": DEEPSEEK_MODEL},
     "openrouter": {"url": OPENROUTER_URL, "key": OPENROUTER_KEY, "model": OPENROUTER_MODEL},
     "opencode": {"url": OPENCODE_URL, "key": OPENCODE_KEY, "model": OPENCODE_MODEL},
+    "ollama": {"url": OLLAMA_URL, "key": OLLAMA_KEY, "model": OLLAMA_MODEL},
 }
 
 def get_provider():

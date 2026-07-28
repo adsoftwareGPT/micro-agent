@@ -1,6 +1,23 @@
-# Micro
+# 🧠 Micro — The AI Agent That *Really* Browses the Web
 
-A compact, terminal-based **AI agent** (agentic CLI chatbot) written in a single Python file (`micro.py`, ~580 lines). It runs an autonomous tool-using loop powered by OpenAI-compatible chat-completion APIs, giving the model full access to a Linux shell, screen vision, web search, webpage fetching, and interactive browser automation.
+**Most AI coding agents can search the web. But the modern web doesn't want to be scraped.**
+
+SPAs that render everything in JavaScript. Anti-bot gateways that block `curl`, `requests`, and even Puppeteer. Cloudflare challenges. Login walls. Rate-limit mazes. Traditional scrapers break the moment a page requires a real browser — and even headless browsers get detected within seconds.
+
+**Micro was built to solve that.**
+
+This is a compact, terminal-based AI agent (~580 lines) that doesn't just call APIs — it **drives a real Chromium browser** over the Chrome DevTools Protocol (CDP), just like a human would. It clicks, types, scrolls, waits, reads rendered DOM, and can even complete full Google OAuth flows. When a page requires JS execution, Micro renders it in a real browser first, then hands the readable content to the LLM.
+
+But that's only half the story. Micro also has:
+
+- A **shell tool** — execute arbitrary Linux commands
+- A **vision tool** — take a screenshot and have a vision LLM describe it
+- A **web search tool** — DuckDuckGo with up to 30 results
+- A **webpage fetch tool** — JS-rendered via Chromium CDP, with a plain-HTTP fallback
+
+All in **one file**. All provider-swappable (GLM 5.2, DeepSeek, OpenRouter, OpenCode). All with an autonomous tool loop that keeps going until the job is done.
+
+> **Why one file?** Because you should be able to read every line, modify anything, and drop it into any Linux machine without ceremony. No framework, no build step, no Docker required.
 
 > **🔑 API keys live in `.env`** (gitignored). Edit the top of `micro.py` to switch providers or copy `.env.example` to `.env` and fill in your keys. See **Quick Start** below.
 
@@ -232,9 +249,47 @@ microtest/
 
 ---
 
+## � CDP Browser Architecture & Cookie Persistence
+
+Micro uses a **visible Chromium** instance (not headless) driven over the Chrome DevTools Protocol (CDP). This is what lets it bypass bot detection, render JS SPAs, and handle real user interactions like OAuth logins.
+
+### How Chromium is launched
+
+A systemd user service (`chromium-cdp-visible.service`) manages the browser lifecycle:
+
+- **Started on-demand** by `cdp_fetch.py` / `browser_action.py` when tools need it
+- **Auto-stops** after 30 minutes idle (`RuntimeMaxSec=1800`)
+- **Runs in visible mode** with `--window-size=1280,900` so sites see a real browser fingerprint
+
+### Profile & cookie persistence
+
+| Aspect | Detail |
+|---|---|
+| **Profile location** (intended) | `~/.chromium-cdp-profile` — passed via `--user-data-dir` |
+| **Profile location** (actual) | `~/snap/chromium/common/chromium/Default/` — snap confinement overrides the custom path |
+| **Cookie storage** | SQLite database at `Default/Cookies` in the profile directory |
+| **Survives restart?** | ✅ **Yes** — cookies are flushed to disk and survive `systemctl --user stop` / `start` cycles |
+| **Shared with regular browser?** | ⚠️ **Yes** — because snap ignores the custom `--user-data-dir`, the CDP browser shares cookies with your regular Chromium snap. This is usually fine (FedCM auto-selects existing accounts) but means clearing your main browser's cookies also clears the CDP session. |
+
+> **If you're not using snap:** The `--user-data-dir=%h/.chromium-cdp-profile` flag works correctly, giving you an isolated profile at `~/.chromium-cdp-profile/`.
+
+### What this means for `login_google`
+
+When the agent calls `browser_action` with `action=login_google`:
+
+1. It navigates to the site's login page
+2. Clicks the "Continue with Google" button (via CSS selector, text match, or GIS iframe detection)
+3. Handles **FedCM** (native browser dialog) or **GIS popup** (Google Identity Services popup)
+4. Selects the configured account and consents
+5. The resulting OAuth cookies are stored in the persistent profile
+
+On the **next Chromium restart**, those cookies are still there — the user stays logged in. The agent can detect this by checking whether a login form is still visible before attempting a new login.
+
+---
+
 ## 🔒 Security Notes
 
 - The shell tool runs **anything** the model asks for — `rm -rf`, `curl | sh`, etc. Run in a container or VM for untrusted prompts.
 - API keys are **not** stored in source. They're loaded from environment variables (auto-read from a gitignored `.env`). `micro.py` and git history contain no keys — never has, by design.
-- The `login_google` action brokers real Google OAuth sessions; the resulting cookies live in the Chromium profile the CDP module connects to.
+- The `login_google` action brokers real Google OAuth sessions; the resulting cookies live in the Chromium profile the CDP module connects to (see [CDP Architecture](#-cdp-browser-architecture--cookie-persistence)).
 - Vision results may contain descriptions of sensitive on-screen content.
