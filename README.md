@@ -213,6 +213,8 @@ Returns up to 30 DuckDuckGo results, numbered, with title/URL/snippet.
 
 Each session appends to `chat.YYYYMMDD_HHMMSS.log.txt` in the script directory. Only **user** and **agent** messages (plus a few `SYSTEM` events) are recorded — tool I/O is excluded to keep logs readable. On startup, all but the 3 newest log files are deleted.
 
+**Why logs?** If the agent loop crashes, times out, or the terminal closes unexpectedly, the conversation history isn't lost — it's right there on disk. On the next run, the agent can read the latest log file to pick up where it left off and continue the most recent task without starting from scratch. This makes the agent resilient to interruptions, network blips, or accidental `Ctrl+C`.
+
 Example entry:
 
 ```
