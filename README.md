@@ -6,7 +6,7 @@ SPAs that render everything in JavaScript. Anti-bot gateways that block `curl`, 
 
 **Micro was built to solve that.**
 
-This is a compact, terminal-based AI agent (~580 lines) that doesn't just call APIs — it **drives a real Chromium browser** over the Chrome DevTools Protocol (CDP), just like a human would. It clicks, types, scrolls, waits, reads rendered DOM, and can even complete full Google OAuth flows. When a page requires JS execution, Micro renders it in a real browser first, then hands the readable content to the LLM.
+This is a compact, terminal-based AI agent (~620 lines) that doesn't just call APIs — it **drives a real Chromium browser** over the Chrome DevTools Protocol (CDP), just like a human would. It clicks, types, scrolls, waits, reads rendered DOM, and can even complete full Google OAuth flows. When a page requires JS execution, Micro renders it in a real browser first, then hands the readable content to the LLM.
 
 But that's only half the story. Micro also has:
 

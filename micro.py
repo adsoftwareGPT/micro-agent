@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import json, os, re, select, subprocess, sys, termios, time, random
+import argparse, json, os, re, select, subprocess, sys, termios, time, random
 from io import BytesIO
 from typing import Optional
 import requests
@@ -522,8 +522,41 @@ def _loop(messages: list):
             logger.log_agent(content)
         break
 
+def parse_args():
+    """Parse CLI args. Provider flags like -zai / -ollama select the provider."""
+    parser = argparse.ArgumentParser(
+        description="micro - a tiny terminal coding agent",
+        add_help=True,
+    )
+    # Add a -<provider> flag for each known provider (e.g. -zai, -ollama)
+    for name in PROVIDERS:
+        parser.add_argument(
+            f"-{name}", action="store_const", const=name, dest="provider",
+            help=f"use the {name} provider",
+        )
+    # Long form aliases for readability (-zai == --zai)
+    for name in PROVIDERS:
+        parser.add_argument(
+            f"--{name}", action="store_const", const=name, dest="provider",
+            help=argparse.SUPPRESS,
+        )
+    # Also allow explicit --provider <name>
+    parser.add_argument(
+        "--provider", dest="provider_name", choices=list(PROVIDERS),
+        help="select provider by name (e.g. --provider ollama)",
+    )
+    args = parser.parse_args()
+    return args
+
+
 def main():
-    global _break_requested, _chat_logger
+    global _break_requested, _chat_logger, PROVIDER
+
+    # Parse CLI args and override PROVIDER if a flag was given
+    args = parse_args()
+    chosen = args.provider or args.provider_name
+    if chosen and chosen in PROVIDERS:
+        PROVIDER = chosen
 
     # Initialize logger (rotates logs on startup)
     logger = get_logger()
