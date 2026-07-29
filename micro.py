@@ -8,13 +8,58 @@ from PIL import Image
 
 # ── Load .env (so keys stay out of source but local runs "just work") ───────
 # python-dotenv if available, otherwise a minimal fallback parser.
-try:
-    from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
-except ImportError:
-    _env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-    if os.path.isfile(_env):
-        with open(_env) as _f:
+# Search order (first match wins): $MAGENT_CONFIG_DIR →
+# $XDG_CONFIG_HOME/micro-agent → ~/.config/micro-agent →
+# <script dir> (fallback for source-tree / git-checkout runs).
+def _candidate_env_dirs():
+    here = os.path.dirname(os.path.abspath(__file__))
+    dirs = []
+    override = os.environ.get("MAGENT_CONFIG_DIR")
+    if override:
+        dirs.append(os.path.expanduser(override))
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        dirs.append(os.path.join(os.path.expanduser(xdg), "micro-agent"))
+    if home := os.path.expanduser("~"):
+        dirs.append(os.path.join(home, ".config", "micro-agent"))
+    dirs.append(here)  # always last: alongside script (legacy / dev / deb fallback)
+    seen, out = set(), []
+    for d in dirs:
+        if d not in seen:
+            seen.add(d); out.append(d)
+    return out
+
+def _find_resource(name: str):
+    """Return first existing path to `name` across candidate dirs, else None."""
+    for d in _candidate_env_dirs():
+        p = os.path.join(d, name)
+        if os.path.isfile(p):
+            return p
+    return None
+
+def _desired_resource(name: str):
+    """Where a NEW resource should be written (first writable user dir, else script dir)."""
+    for d in _candidate_env_dirs():
+        try:
+            os.makedirs(d, exist_ok=True)
+            return os.path.join(d, name)
+        except OSError:
+            continue
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+
+def _load_dotenv_anywhere():
+    """Load .env from the first candidate dir that has one.
+
+    Also ensures XDG user dir exists for first-time `micro-agent` runs.
+    """
+    p = _find_resource(".env")
+    if not p:
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(p)
+    except ImportError:
+        with open(p) as _f:
             for _line in _f:
                 _line = _line.strip()
                 if not _line or _line.startswith("#") or "=" not in _line:
@@ -22,9 +67,12 @@ except ImportError:
                 _k, _, _v = _line.partition("=")
                 os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 
+_load_dotenv_anywhere()
+
 # ── Config ──────────────────────────────────────────────────────────────────
 # Set PROVIDER to "zai" or "deepseek" or "openrouter" or "opencode" or "ollama"
-PROVIDER = "zai"
+# Override via the PROVIDER=... line in your .env or the CLI flag (-zai, -ollama, …).
+PROVIDER = os.environ.get("PROVIDER", "zai")
 
 ZAI_KEY = os.environ.get("ZAI_KEY", "")
 ZAI_MODEL = os.environ.get("ZAI_MODEL", "glm-5.2")
@@ -75,7 +123,10 @@ _USER_AGENTS = [
 SYSTEM_PROMPT = "- You are an AI expert having full linux at hand\n- current date: {current_date}\n- Chat history (user & agent messages) is logged to chat.*.log.txt in the project dir (format: chat.YYYYMMDD_HHMMSS.log.txt, newest by filename sort)."
 
 # ── Chat Logger ─────────────────────────────────────────────────────────────
-LOG_DIR = os.path.dirname(os.path.abspath(__file__))
+# Write logs to the first writable user dir (XDG), falling back to the script
+# directory for source-tree / dev runs. Prevents permission errors when
+# installed via .deb to /usr/share/micro-agent (read-only for normal users).
+LOG_DIR = os.path.dirname(_desired_resource("chat.log"))
 LOG_BASE = os.path.join(LOG_DIR, "chat")
 LOG_KEEP = 3  # keep up to 3 timestamped log files
 
