@@ -1,5 +1,9 @@
 # 🧠 Micro — The AI Agent That *Really* Browses the Web
 
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-6C757D?logo=linux&logoColor=white)](#prerequisites) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#prerequisites)
+
+> 🐧 **Micro runs on Linux.** The agent loop, LLM calls, and search work anywhere, but the `shell`, `vision`, `browser_action`, and JS-rendering `fetch_webpage` tools assume a Linux desktop with Chromium and `gnome-screenshot`/`scrot`. A `.deb` package is provided for Debian/Ubuntu. macOS/Windows are not supported.
+
 **Most AI coding agents can search the web. But the modern web doesn't want to be scraped.**
 
 SPAs that render everything in JavaScript. Anti-bot gateways that block `curl`, `requests`, and even Puppeteer. Cloudflare challenges. Login walls. Rate-limit mazes. Traditional scrapers break the moment a page requires a real browser — and even headless browsers get detected within seconds.
@@ -45,10 +49,10 @@ All in **one file**. All provider-swappable (GLM 5.2, DeepSeek, OpenRouter, Open
 
 ### Prerequisites
 
+- **A Linux desktop** (Debian/Ubuntu and other GNOME distros, or anything with `scrot`). This is the primary supported platform — the `shell`, `vision`, `browser_action`, and JS-rendering `fetch_webpage` tools all assume Linux.
 - Python 3.10+
-- A Linux desktop (GNOME or with `scrot`) — only needed for the `vision` tool
 - **Chromium / Google Chrome** — needed for the `browser_action` and JS-rendering `fetch_webpage` tools (they fall back gracefully if missing)
-- API key for at least one provider
+- API key for at least one provider (or a local Ollama server for the `ollama` provider)
 
 ### Install dependencies
 
@@ -62,13 +66,19 @@ pip install requests pillow ddgs python-dotenv
 
 ### Configure API keys
 
-`micro.py` reads keys from environment variables, auto-loading a `.env` file in
-the project directory on startup (via `python-dotenv`, or a tiny built-in fallback
-if that isn't installed). `.env` is gitignored, so it's safe to put real keys there.
+`micro.py` reads keys from environment variables, auto-loading a `.env` file on
+startup (via `python-dotenv`, or a tiny built-in fallback if that isn't installed).
+`.env` is gitignored, so it's safe to put real keys there.
+
+The `.env` is searched in this order (first hit wins):
+
+1. `~/.config/micro-agent/.env` — **recommended**, survives reinstalls (XDG)
+2. `./.env` — next to `micro.py`
+3. `~/.env`
 
 ```bash
-cp .env.example .env
-# edit .env and fill in your keys, then:
+mkdir -p ~/.config/micro-agent && cp .env.example ~/.config/micro-agent/.env
+# edit ~/.config/micro-agent/.env and fill in your keys, then:
 ./micro.py        # or: python3 micro.py
 ```
 
@@ -102,14 +112,24 @@ Config comes from two places: `.env` (keys, provider selection, model overrides)
 
 ### Provider selection
 
-`PROVIDER` can be set to `zai`, `deepseek`, `openrouter`, or `opencode` — either as a constant in `micro.py` or via the `PROVIDER` env var. Each provider block defines `URL`, `KEY`, and `MODEL`; add your own and register it in the `PROVIDERS` dict:
+`PROVIDER` can be set to `zai`, `deepseek`, `openrouter`, `opencode`, or `ollama` — either via the `PROVIDER` env var in `.env`, or with a CLI flag at launch (`-zai`, `-deepseek`, `-openrouter`, `-opencode`, `-ollama`, or `--provider <name>`).
+
+Each entry in `PROVIDERS` is built from a `(name, default_url, default_model)` tuple, and every field can be overridden per-provider via an env var of the form `<NAME>_URL` / `<NAME>_MODEL` / `<NAME>_KEY`. Keys are **always** read from the environment, never baked into source. To add your own provider, append a tuple:
 
 ```python
 PROVIDERS = {
-    "zai":        {"url": ZAI_URL,        "key": ZAI_KEY,        "model": ZAI_MODEL},
-    "deepseek":   {"url": DEEPSEEK_URL,   "key": DEEPSEEK_KEY,   "model": DEEPSEEK_MODEL},
-    "openrouter": {"url": OPENROUTER_URL, "key": OPENROUTER_KEY, "model": OPENROUTER_MODEL},
-    "opencode":   {"url": OPENCODE_URL,   "key": OPENCODE_KEY,   "model": OPENCODE_MODEL},
+    name: {
+        "url":   os.environ.get(f"{name.upper()}_URL",   url),
+        "model": os.environ.get(f"{name.upper()}_MODEL", model),
+        "key":   os.environ.get(f"{name.upper()}_KEY", ""),
+    }
+    for name, url, model in [
+        ("zai",        "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-5.2"),
+        ("deepseek",   "https://api.deepseek.com/chat/completions",            "deepseek-v4-flash"),
+        ("openrouter", "https://openrouter.ai/api/v1/chat/completions",        "xiaomi/mimo-v2.5"),
+        ("opencode",   "https://opencode.ai/zen/v1/chat/completions",          "deepseek-v4-flash-free"),
+        ("ollama",     "http://localhost:11434/v1/chat/completions",            "glm-5.2:cloud"),
+    ]
 }
 ```
 
@@ -119,6 +139,7 @@ PROVIDERS = {
 | `deepseek` | `deepseek-v4-flash` | `https://api.deepseek.com/chat/completions` |
 | `openrouter` | `xiaomi/mimo-v2.5` | `https://openrouter.ai/api/v1/chat/completions` |
 | `opencode` | `deepseek-v4-flash-free` | `https://opencode.ai/zen/v1/chat/completions` |
+| `ollama` | `glm-5.2:cloud` | `http://localhost:11434/v1/chat/completions` (local) |
 
 ### Tunable constants
 
