@@ -74,110 +74,25 @@ _load_dotenv_anywhere()
 # Override via the PROVIDER=... line in your .env or the CLI flag (-zai, -ollama, …).
 PROVIDER = os.environ.get("PROVIDER", "zai")
 
-# ── Provider config (loaded from providers.json) ──────────────────────────
-# The catalog ships next to micro.py as providers.json and defines the defaults
-# for each provider's URL and model. Keys are deliberately NOT stored in the
-# JSON file (they're secrets) — they're pulled from environment variables
-# (e.g. ZAI_KEY) via the `key_env` field, at runtime.
-#
-# Override precedence (last wins):
-#   code default  <  providers.json  <  env var / .env  <  CLI flag
-def _load_providers_json() -> dict:
-    """Load providers.json from the first candidate config dir that has it.
-
-    Returns {} if none is found (caller falls back to built-in defaults).
-    Strips the documentation `_comment` key if present.
-    """
-    import json as _json
-    p = _find_resource("providers.json")
-    if not p:
-        return {}
-    try:
-        with open(p) as _f:
-            data = _json.load(_f)
-    except (OSError, ValueError) as _e:
-        print(f"⚠️  providers.json at {p} could not be parsed: {_e}", file=__import__("sys").stderr)
-        return {}
-    data.pop("_comment", None)
-    return data
-
-def _build_providers():
-    """Assemble the merged provider defaults: built-ins overridden by JSON.
-
-    Returns an ordered dict of provider name -> {url, model, key_env}.
-    JSON entries are merged over the built-in catalog, so users can override
-    specific fields (e.g. just change a model) without copying the whole file.
-    """
-    builtins = {
-        "zai": {
-            "url": "https://api.z.ai/api/coding/paas/v4/chat/completions",
-            "model": "glm-5.2",
-            "key_env": "ZAI_KEY",
-        },
-        "deepseek": {
-            "url": "https://api.deepseek.com/chat/completions",
-            "model": "deepseek-v4-flash",
-            "key_env": "DEEPSEEK_KEY",
-        },
-        "openrouter": {
-            "url": "https://openrouter.ai/api/v1/chat/completions",
-            "model": "xiaomi/mimo-v2.5",
-            "key_env": "OPENROUTER_KEY",
-        },
-        "opencode": {
-            "url": "https://opencode.ai/zen/v1/chat/completions",
-            "model": "deepseek-v4-flash-free",
-            "key_env": "OPENCODE_KEY",
-        },
-        "ollama": {
-            "url": "http://localhost:11434/v1/chat/completions",
-            "model": "glm-5.2:cloud",
-            "key_env": "OLLAMA_KEY",
-        },
+# Per-provider defaults. Each can be overridden by env vars in .env:
+#   <NAME>_URL     — endpoint to use
+#   <NAME>_MODEL   — model name
+#   <NAME>_KEY     — API key (always from env, never baked in)
+# Example .env:  OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+PROVIDERS = {
+    name: {
+        "url":   os.environ.get(f"{name.upper()}_URL",   url),
+        "model": os.environ.get(f"{name.upper()}_MODEL", model),
+        "key":   os.environ.get(f"{name.upper()}_KEY", ""),
     }
-    merged = {name: dict(cfg) for name, cfg in builtins.items()}
-    for name, cfg in _load_providers_json().items():
-        if not isinstance(cfg, dict):
-            continue
-        if name not in merged:
-            merged[name] = {}
-        merged[name].update(cfg)
-    return merged
-
-_PROVIDER_CATALOG = _build_providers()
-
-# Expose per-provider constants for backward compatibility with the rest of
-# micro.py (vision tool reads OPENROUTER_KEY / VISION_*). Env vars still win
-# over JSON defaults for *_MODEL and *_URL; *_KEY always comes from env only.
-def _provider_url(name: str) -> str:
-    entry = _PROVIDER_CATALOG.get(name, {})
-    env_attr = f"{name.upper()}_URL"
-    return os.environ.get(env_attr, entry.get("url", ""))
-
-def _provider_model(name: str) -> str:
-    entry = _PROVIDER_CATALOG.get(name, {})
-    env_attr = f"{name.upper()}_MODEL"
-    return os.environ.get(env_attr, entry.get("model", ""))
-
-def _provider_key(name: str) -> str:
-    entry = _PROVIDER_CATALOG.get(name, {})
-    return os.environ.get(entry.get("key_env", ""), "")
-
-ZAI_URL       = _provider_url("zai")
-ZAI_MODEL     = _provider_model("zai")
-ZAI_KEY       = _provider_key("zai")
-DEEPSEEK_URL  = _provider_url("deepseek")
-DEEPSEEK_MODEL= _provider_model("deepseek")
-DEEPSEEK_KEY  = _provider_key("deepseek")
-OPENROUTER_URL  = _provider_url("openrouter")
-OPENROUTER_MODEL= _provider_model("openrouter")
-OPENROUTER_KEY  = _provider_key("openrouter")
-OPENCODE_URL  = _provider_url("opencode")
-OPENCODE_MODEL= _provider_model("opencode")
-OPENCODE_KEY  = _provider_key("opencode")
-OLLAMA_URL    = _provider_url("ollama")
-OLLAMA_MODEL  = _provider_model("ollama")
-OLLAMA_KEY    = _provider_key("ollama")
+    for name, url, model in [
+        ("zai",        "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-5.2"),
+        ("deepseek",   "https://api.deepseek.com/chat/completions",            "deepseek-v4-flash"),
+        ("openrouter", "https://openrouter.ai/api/v1/chat/completions",        "xiaomi/mimo-v2.5"),
+        ("opencode",   "https://opencode.ai/zen/v1/chat/completions",          "deepseek-v4-flash-free"),
+        ("ollama",     "http://localhost:11434/v1/chat/completions",            "glm-5.2:cloud"),
+    ]
+}
 
 MAX_TOKENS = 38192
 TOOL_OUTPUT_MAX_CHARS = 350000
@@ -276,7 +191,6 @@ class ChatLogger:
             self._file.close()
 
 _chat_logger: Optional[ChatLogger] = None
-_chat_logger: Optional[ChatLogger] = None
 def get_logger() -> ChatLogger:
     global _chat_logger
     if _chat_logger is None:
@@ -347,16 +261,8 @@ TOOLS = [
 ]
 
 # ── Provider Registry ──────────────────────────────────────────────────────
-# Built at import time from _PROVIDER_CATALOG (which itself is built-ins
-# merged with providers.json). Adding a provider to providers.json therefore
-# automatically makes it selectable via --provider <name> and -<name>.
-PROVIDERS = {
-    name: {"url": _provider_url(name),
-           "key": _provider_key(name),
-           "model": _provider_model(name)}
-    for name in _PROVIDER_CATALOG
-}
-
+# PROVIDERS is built above in the Config section; to add a new provider, just
+# add a tuple to that table — it's automatically usable via -<name> / --provider.
 def get_provider():
     """Return the active provider config dict based on PROVIDER."""
     p = PROVIDERS.get(PROVIDER)
@@ -402,8 +308,8 @@ def execute_shell(cmd: str) -> str:
 
 # ── Vision Tool ─────────────────────────────────────────────────────────────
 def execute_vision(prompt: str = '', path: str = '', delay: int = 0) -> str:
-    # Reuse the OpenRouter key from config (set via OPENROUTER_KEY env var).
-    api_key = OPENROUTER_KEY
+    # Vision calls OpenRouter directly; reuse the OPENROUTER_KEY from .env.
+    api_key = os.environ.get("OPENROUTER_KEY", "")
 
     if not path:
         ts = int(time.time())
@@ -517,15 +423,9 @@ def _legacy_http_fetch(url: str) -> str:
 def execute_ddg_search(query: str) -> str:
     """Search DuckDuckGo using the ddgs library, returns up to 30 results."""
     try:
-        # Optional: use a sibling project's venv if present; otherwise rely on the
-        # current interpreter's installed packages.
-        _alt_site = os.path.join(os.path.expanduser('~'), 'browser-robot-portable',
-                                 '.venv', 'lib', 'python3.12', 'site-packages')
-        if os.path.isdir(_alt_site):
-            sys.path.insert(0, _alt_site)
         from ddgs import DDGS
     except ImportError:
-        return "Error: ddgs library not found. Install with: pip install ddgs"
+        return "Error: ddgs library not found. Install with: pip3 install --break-system-packages ddgs"
     try:
         results = DDGS().text(query, max_results=30)
     except Exception as e:
