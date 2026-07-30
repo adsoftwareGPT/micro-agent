@@ -239,15 +239,15 @@ TOOLS = [
         }, "required": ["url"]}}},
     {"type": "function", "function": {
         "name": "browser_action",
-        "description": "Control the browser interactively: click elements, type text, navigate, scroll, take screenshots, wait for conditions, check browser state, and LOG IN to websites using Google OAuth. Actions: navigate, click, type, scroll, wait, screenshot, get_state, login_google. The login_google action handles the full Google Identity Services flow automatically (FedCM + popup + redirect).",
+        "description": "Control the browser interactively: click elements, type text, navigate, scroll, take screenshots, wait for conditions, check browser state, and LOG IN to websites using Google OAuth. Actions: navigate, click, type, scroll, eval (run JS), wait, screenshot, get_state, login_google. The login_google action handles the full Google Identity Services flow automatically (FedCM + popup + redirect). For infinite-scroll feeds (X.com, Reddit, Threads): call `eval` to extract visible posts, then `scroll` (no args = one viewport down), then `eval` again — own the loop yourself, dedup by post permalink, and stop when several consecutive scrolls yield no new posts.",
         "parameters": {"type": "object", "properties": {
-            "action": {"type": "string", "enum": ["navigate", "click", "type", "scroll", "wait", "screenshot", "get_state", "login_google"],
+            "action": {"type": "string", "enum": ["navigate", "click", "type", "scroll", "eval", "wait", "screenshot", "get_state", "login_google"],
                        "description": "The browser action to perform"},
             "url": {"type": "string", "description": "URL for navigate/login_google actions"},
             "selector": {"type": "string", "description": "CSS selector for click/type actions"},
             "text": {"type": "string", "description": "Text to match for click action, or text to type for type action"},
-            "x": {"type": "integer", "description": "X coordinate for click action"},
-            "y": {"type": "integer", "description": "Y coordinate for click action"},
+            "x": {"type": "integer", "description": "X coordinate for click action, or horizontal scroll target"},
+            "y": {"type": "integer", "description": "Y coordinate for click action, or vertical scroll target"},
             "email": {"type": "string", "description": "Google account email for login_google (optional, auto-selects first if omitted)"},
             "login_url": {"type": "string", "description": "Direct login URL for login_google (optional, defaults to url+/login)"},
             "btn_text": {"type": "string", "description": "Text of the Google login button (default: 'Continue with Google')"},
@@ -256,7 +256,8 @@ TOOLS = [
             "text_contains": {"type": "string", "description": "Wait until page text contains this string"},
             "path": {"type": "string", "description": "File path for screenshot (default: /tmp/browser_screenshot.jpg)"},
             "wait": {"type": "integer", "description": "Wait time in seconds (for navigate/login_google)"},
-            "iframe_selector": {"type": "string", "description": "CSS selector for iframe to click (for GIS buttons)"}
+            "iframe_selector": {"type": "string", "description": "CSS selector for iframe to click (for GIS buttons)"},
+            "script": {"type": "string", "description": "JavaScript expression to evaluate (for eval action). Use to extract page content: document.querySelectorAll('article').length, get_text(), JSON.stringify([...]), etc."}
         }, "required": ["action"]}}},
 ]
 

@@ -438,8 +438,36 @@ def action_screenshot(path="/tmp/browser_screenshot.jpg"):
         s.close()
 
 
-def action_scroll(y=500, selector=None):
-    """Scroll the page or a specific element."""
+def action_eval(script):
+    """Evaluate a JS expression in the page and return the result as a string.
+
+    Lets the agent extract structured content itself (rather than relying on
+    screenshots), e.g. on an infinite feed: count matching articles, pull
+    their text/permalinks as JSON, dedup in the loop.
+    """
+    if not _ensure_chromium():
+        return "Error: Chromium not available"
+    ws_url = _get_page_ws()
+    if not ws_url:
+        return "Error: No browser page found"
+    s = CDPSession(ws_url)
+    try:
+        val = s.eval(script)
+        if val is None:
+            return "null"
+        return str(val)
+    finally:
+        s.close()
+
+
+def action_scroll(x=None, y=None, selector=None):
+    """Scroll the page.
+
+    Mirrors newbrowser/browser.py:926 — a deliberately dumb primitive. The
+    agent (LLM) owns the loop: it calls `eval` to extract content, then this
+    to scroll, repeat. Keeping the tool dumb avoids the failure mode where a
+    site-specific container/WheelEvent heuristic breaks scrolling everywhere.
+    """
     if not _ensure_chromium():
         return "Error: Chromium not available"
     ws_url = _get_page_ws()
@@ -448,11 +476,21 @@ def action_scroll(y=500, selector=None):
     s = CDPSession(ws_url)
     try:
         if selector:
-            s.eval(f"var el = document.querySelector({json.dumps(selector)}); if(el) el.scrollIntoView({{block:'center'}})")
-            return f"Scrolled element '{selector}' into view"
+            s.eval(
+                "var el = document.querySelector(" + json.dumps(selector) + "); "
+                "if (el) el.scrollIntoView({block: 'center'});"
+            )
+            return "Scrolled element '" + str(selector) + "' into view"
+        if x is not None and y is not None:
+            js = "window.scrollTo(" + str(int(x)) + "," + str(int(y)) + ")"
+        elif y is not None:
+            js = "window.scrollTo(0," + str(int(y)) + ")"
+        elif x is not None:
+            js = "window.scrollTo(" + str(int(x)) + ",0)"
         else:
-            s.eval(f"window.scrollBy(0, {y})")
-            return f"Scrolled down by {y}px"
+            js = "window.scrollBy(0,window.innerHeight)"
+        s.eval(js)
+        return "Scrolled: " + js
     finally:
         s.close()
 
@@ -774,9 +812,10 @@ def browser_action(action, **kwargs):
         navigate      - Go to a URL (url, wait)
         click         - Click element (selector, text, x, y, iframe_selector)
         type          - Type text into input (selector, text)
-        scroll        - Scroll page (y, selector)
+        scroll        - Scroll page (x, y, or selector)
         wait          - Wait for condition (seconds, url_contains, text_contains)
         screenshot    - Take screenshot (path)
+        eval          - Run JS expression in page (script), return result as string
         get_state     - Get current browser state
         login_google  - Log in via Google OAuth (url, email, login_url, btn_text)
     """
@@ -790,13 +829,14 @@ def browser_action(action, **kwargs):
             x=kwargs.get("x"), y=kwargs.get("y"),
             iframe_selector=kwargs.get("iframe_selector")),
         "type": lambda: action_type(kwargs.get("selector", ""), kwargs.get("text", "")),
-        "scroll": lambda: action_scroll(kwargs.get("y", 500), kwargs.get("selector")),
+        "scroll": lambda: action_scroll(kwargs.get("x"), kwargs.get("y"), kwargs.get("selector")),
         "wait": lambda: action_wait(
             seconds=kwargs.get("seconds", 5),
             url_contains=kwargs.get("url_contains"),
             text_contains=kwargs.get("text_contains"),
             timeout=kwargs.get("timeout", 30)),
         "screenshot": lambda: action_screenshot(kwargs.get("path", "/tmp/browser_screenshot.jpg")),
+        "eval": lambda: action_eval(kwargs.get("script", "")),
         "get_state": lambda: action_get_state(),
         "login_google": lambda: login_with_google(
             site_url=kwargs.get("url", ""),
@@ -821,7 +861,7 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) < 2:
         print("Usage: browser_action.py <action> [args...]")
-        print("Actions: navigate, click, type, scroll, wait, screenshot, get_state, login_google")
+        print("Actions: navigate, click, type, scroll, eval, wait, screenshot, get_state, login_google")
         sys.exit(1)
 
     action = sys.argv[1]
