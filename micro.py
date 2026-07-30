@@ -74,25 +74,110 @@ _load_dotenv_anywhere()
 # Override via the PROVIDER=... line in your .env or the CLI flag (-zai, -ollama, …).
 PROVIDER = os.environ.get("PROVIDER", "zai")
 
-ZAI_KEY = os.environ.get("ZAI_KEY", "")
-ZAI_MODEL = os.environ.get("ZAI_MODEL", "glm-5.2")
-ZAI_URL = "https://api.z.ai/api/coding/paas/v4/chat/completions"
+# ── Provider config (loaded from providers.json) ──────────────────────────
+# The catalog ships next to micro.py as providers.json and defines the defaults
+# for each provider's URL and model. Keys are deliberately NOT stored in the
+# JSON file (they're secrets) — they're pulled from environment variables
+# (e.g. ZAI_KEY) via the `key_env` field, at runtime.
+#
+# Override precedence (last wins):
+#   code default  <  providers.json  <  env var / .env  <  CLI flag
+def _load_providers_json() -> dict:
+    """Load providers.json from the first candidate config dir that has it.
 
-DEEPSEEK_KEY = os.environ.get("DEEPSEEK_KEY", "")
-DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
-DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+    Returns {} if none is found (caller falls back to built-in defaults).
+    Strips the documentation `_comment` key if present.
+    """
+    import json as _json
+    p = _find_resource("providers.json")
+    if not p:
+        return {}
+    try:
+        with open(p) as _f:
+            data = _json.load(_f)
+    except (OSError, ValueError) as _e:
+        print(f"⚠️  providers.json at {p} could not be parsed: {_e}", file=__import__("sys").stderr)
+        return {}
+    data.pop("_comment", None)
+    return data
 
-OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "xiaomi/mimo-v2.5")
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+def _build_providers():
+    """Assemble the merged provider defaults: built-ins overridden by JSON.
 
-OPENCODE_KEY = os.environ.get("OPENCODE_KEY", "")
-OPENCODE_MODEL = os.environ.get("OPENCODE_MODEL", "deepseek-v4-flash-free")
-OPENCODE_URL = "https://opencode.ai/zen/v1/chat/completions"
+    Returns an ordered dict of provider name -> {url, model, key_env}.
+    JSON entries are merged over the built-in catalog, so users can override
+    specific fields (e.g. just change a model) without copying the whole file.
+    """
+    builtins = {
+        "zai": {
+            "url": "https://api.z.ai/api/coding/paas/v4/chat/completions",
+            "model": "glm-5.2",
+            "key_env": "ZAI_KEY",
+        },
+        "deepseek": {
+            "url": "https://api.deepseek.com/chat/completions",
+            "model": "deepseek-v4-flash",
+            "key_env": "DEEPSEEK_KEY",
+        },
+        "openrouter": {
+            "url": "https://openrouter.ai/api/v1/chat/completions",
+            "model": "xiaomi/mimo-v2.5",
+            "key_env": "OPENROUTER_KEY",
+        },
+        "opencode": {
+            "url": "https://opencode.ai/zen/v1/chat/completions",
+            "model": "deepseek-v4-flash-free",
+            "key_env": "OPENCODE_KEY",
+        },
+        "ollama": {
+            "url": "http://localhost:11434/v1/chat/completions",
+            "model": "glm-5.2:cloud",
+            "key_env": "OLLAMA_KEY",
+        },
+    }
+    merged = {name: dict(cfg) for name, cfg in builtins.items()}
+    for name, cfg in _load_providers_json().items():
+        if not isinstance(cfg, dict):
+            continue
+        if name not in merged:
+            merged[name] = {}
+        merged[name].update(cfg)
+    return merged
 
-OLLAMA_KEY = os.environ.get("OLLAMA_KEY", "")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "glm-5.2:cloud")
-OLLAMA_URL = "http://localhost:11434/v1/chat/completions"
+_PROVIDER_CATALOG = _build_providers()
+
+# Expose per-provider constants for backward compatibility with the rest of
+# micro.py (vision tool reads OPENROUTER_KEY / VISION_*). Env vars still win
+# over JSON defaults for *_MODEL and *_URL; *_KEY always comes from env only.
+def _provider_url(name: str) -> str:
+    entry = _PROVIDER_CATALOG.get(name, {})
+    env_attr = f"{name.upper()}_URL"
+    return os.environ.get(env_attr, entry.get("url", ""))
+
+def _provider_model(name: str) -> str:
+    entry = _PROVIDER_CATALOG.get(name, {})
+    env_attr = f"{name.upper()}_MODEL"
+    return os.environ.get(env_attr, entry.get("model", ""))
+
+def _provider_key(name: str) -> str:
+    entry = _PROVIDER_CATALOG.get(name, {})
+    return os.environ.get(entry.get("key_env", ""), "")
+
+ZAI_URL       = _provider_url("zai")
+ZAI_MODEL     = _provider_model("zai")
+ZAI_KEY       = _provider_key("zai")
+DEEPSEEK_URL  = _provider_url("deepseek")
+DEEPSEEK_MODEL= _provider_model("deepseek")
+DEEPSEEK_KEY  = _provider_key("deepseek")
+OPENROUTER_URL  = _provider_url("openrouter")
+OPENROUTER_MODEL= _provider_model("openrouter")
+OPENROUTER_KEY  = _provider_key("openrouter")
+OPENCODE_URL  = _provider_url("opencode")
+OPENCODE_MODEL= _provider_model("opencode")
+OPENCODE_KEY  = _provider_key("opencode")
+OLLAMA_URL    = _provider_url("ollama")
+OLLAMA_MODEL  = _provider_model("ollama")
+OLLAMA_KEY    = _provider_key("ollama")
 
 MAX_TOKENS = 38192
 TOOL_OUTPUT_MAX_CHARS = 350000
@@ -262,12 +347,14 @@ TOOLS = [
 ]
 
 # ── Provider Registry ──────────────────────────────────────────────────────
+# Built at import time from _PROVIDER_CATALOG (which itself is built-ins
+# merged with providers.json). Adding a provider to providers.json therefore
+# automatically makes it selectable via --provider <name> and -<name>.
 PROVIDERS = {
-    "zai": {"url": ZAI_URL, "key": ZAI_KEY, "model": ZAI_MODEL},
-    "deepseek": {"url": DEEPSEEK_URL, "key": DEEPSEEK_KEY, "model": DEEPSEEK_MODEL},
-    "openrouter": {"url": OPENROUTER_URL, "key": OPENROUTER_KEY, "model": OPENROUTER_MODEL},
-    "opencode": {"url": OPENCODE_URL, "key": OPENCODE_KEY, "model": OPENCODE_MODEL},
-    "ollama": {"url": OLLAMA_URL, "key": OLLAMA_KEY, "model": OLLAMA_MODEL},
+    name: {"url": _provider_url(name),
+           "key": _provider_key(name),
+           "model": _provider_model(name)}
+    for name in _PROVIDER_CATALOG
 }
 
 def get_provider():

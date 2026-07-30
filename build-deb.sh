@@ -4,6 +4,7 @@
 # Layout produced by this script (Debian policy compliant):
 #   usr/bin/micro-agent                         # thin wrapper
 #   usr/share/micro-agent/{micro.py,...}        # app code
+#   usr/share/micro-agent/providers.json        # provider catalog (editable)
 #   usr/share/micro-agent/.env.example          # template config
 #   usr/share/doc/micro-agent/{README,README.md,changelog.gz}
 #   DEBIAN/{control,postinst,md5sums}
@@ -37,6 +38,7 @@ mkdir -p "$APPDIR" "$DOCDIR" "$BINDIR" "$DEBDIR"
 install -m 0644 micro.py          "$APPDIR/micro.py"
 install -m 0644 cdp_fetch.py      "$APPDIR/cdp_fetch.py"
 install -m 0644 browser_action.py "$APPDIR/browser_action.py"
+install -m 0644 providers.json    "$APPDIR/providers.json"
 install -m 0644 .env.example      "$APPDIR/.env.example"
 
 # ── Docs ────────────────────────────────────────────────────────────────
@@ -79,6 +81,10 @@ if [ "$1" = "configure" ]; then
     echo "  cp /usr/share/micro-agent/.env.example ~/.config/micro-agent/.env"
     echo "  nano ~/.config/micro-agent/.env"
     echo "Then run:  micro-agent"
+    echo ""
+    echo "To change default URLs/models or add custom providers, edit:"
+    echo "  /usr/share/micro-agent/providers.json"
+    echo "  (or copy it to ~/.config/micro-agent/providers.json for per-user overrides)"
     echo ""
     echo "Chat logs are written to ~/.config/micro-agent/chat.*.log.txt"
     echo ""

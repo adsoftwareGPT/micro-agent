@@ -1,0 +1,29 @@
+{
+  "_comment": "Provider catalog for micro-agent. Edit the URL or model here to change defaults for all runs. Keys are NOT stored here — set them via environment variables (e.g. ZAI_KEY) or in .env. Override order: code default < providers.json < env vars (.env) < CLI flag.",
+
+  "zai": {
+    "url": "https://api.z.ai/api/coding/paas/v4/chat/completions",
+    "model": "glm-5.2",
+    "key_env": "ZAI_KEY"
+  },
+  "deepseek": {
+    "url": "https://api.deepseek.com/chat/completions",
+    "model": "deepseek-v4-flash",
+    "key_env": "DEEPSEEK_KEY"
+  },
+  "openrouter": {
+    "url": "https://openrouter.ai/api/v1/chat/completions",
+    "model": "xiaomi/mimo-v2.5",
+    "key_env": "OPENROUTER_KEY"
+  },
+  "opencode": {
+    "url": "https://opencode.ai/zen/v1/chat/completions",
+    "model": "deepseek-v4-flash-free",
+    "key_env": "OPENCODE_KEY"
+  },
+  "ollama": {
+    "url": "http://localhost:11434/v1/chat/completions",
+    "model": "glm-5.2:cloud",
+    "key_env": "OLLAMA_KEY"
+  }
+}
