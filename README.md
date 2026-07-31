@@ -54,33 +54,99 @@ All in **one file**. All provider-swappable (GLM 5.2, DeepSeek, OpenRouter, Open
 - **Chromium / Google Chrome** — needed for the `browser_action` and JS-rendering `fetch_webpage` tools (they fall back gracefully if missing)
 - API key for at least one provider (or a local Ollama server for the `ollama` provider)
 
-### Install dependencies
+### Install
+
+The recommended way is with **[`uv`](https://docs.astral.sh/uv/)** (or `pipx`).
+It creates an isolated environment for `micro-agent` and puts the `micro-agent`
+command on your PATH — no manual `pip install`, no PATH juggling, no system-wide
+packages:
 
 ```bash
-pip install requests pillow ddgs python-dotenv
+# Install uv once (skip if you already have it):
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Then install micro-agent in its own isolated environment:
+uv tool install micro-agent          # from PyPI once published
+# …or from a git checkout / GitHub URL:
+uv tool install git+https://github.com/adsoftwareGPT/micro-agent
 ```
 
-> The `ddgs` import is searched for in a sibling project's venv at
-> `~/browser-robot-portable/.venv/lib/python3.12/site-packages` if present, but a
-> normal `pip install ddgs` is the intended path.
+`pipx install micro-agent` work identically if you prefer it.
+
+<details>
+<summary><b>Alternatives: .deb, or run from source</b></summary>
+
+**Debian/Ubuntu (.deb):** download `micro-agent_*.deb` from the
+[Releases page](https://github.com/adsoftwareGPT/micro-agent/releases) and:
+
+```bash
+sudo apt install ./micro-agent_*.deb   # resolves python3-requests/-pil automatically
+```
+
+**Run from source (no install):**
+
+```bash
+pip install requests pillow ddgs    # or use a venv: uv venv && source .venv/bin/activate
+./micro.py
+```
+
+</details>
+
+> 💡 **Optional — DuckDuckGo search:** the `ddg_search` tool needs the `ddgs`
+> library, which isn't installed by default (it's not in Debian apt). Install it
+> into the `micro-agent` tool environment with:
+> ```bash
+> uv tool install --with ddgs micro-agent
+> ```
 
 ### Configure API keys
 
-`micro.py` reads keys from environment variables, auto-loading a `.env` file on
-startup (via `python-dotenv`, or a tiny built-in fallback if that isn't installed).
-`.env` is gitignored, so it's safe to put real keys there.
+On **first run**, `micro-agent` automatically creates a config folder and a
+template `.env` in your home directory:
 
-The `.env` is searched in this order (first hit wins):
+```
+~/micro-agent/
+├── .env                 ← edit this: your API keys go here
+└── chat.*.log.txt       ← rolling chat logs (same folder)
+```
 
-1. `~/.config/micro-agent/.env` — **recommended**, survives reinstalls (XDG)
-2. `./.env` — next to `micro.py`
-3. `~/.env`
+You'll see this message once, then the prompt starts immediately:
+
+```
+First run: created config at /home/adsoftware/micro-agent/.env
+  Edit it to add your API keys, then start chatting.
+  Provider: zai | Model: glm-5.2 | Mode: no-think
+You:
+```
+
+So all you do is:
 
 ```bash
-mkdir -p ~/.config/micro-agent && cp .env.example ~/.config/micro-agent/.env
-# edit ~/.config/micro-agent/.env and fill in your keys, then:
-./micro.py        # or: python3 micro.py
+micro-agent                      # creates ~/micro-agent/.env on first run
+nano ~/micro-agent/.env          # fill in your API keys
+micro-agent                      # ready to chat
 ```
+
+Everything user-editable — your `.env` and your chat logs — lives in **one
+folder: `~/micro-agent/`**.
+
+`micro.py` reads keys from environment variables, auto-loading `.env` on startup
+via a tiny built-in parser (no extra dependency needed). `.env` is gitignored,
+so it's safe to put real keys there.
+
+<details>
+<summary><b>Advanced: alternate .env locations</b></summary>
+
+If `~/micro-agent/` doesn't suit you, `.env` is searched in this order (first
+hit wins):
+
+1. `$MAGENT_CONFIG_DIR/.env` — explicit override
+2. `~/micro-agent/.env` — **default**, created on first run
+3. `$XDG_CONFIG_HOME/micro-agent/.env` — standard XDG
+4. `~/.config/micro-agent/.env` — legacy XDG fallback
+5. `<script dir>/.env` — only relevant for source-tree / dev runs
+
+</details>
 
 `.env` example (`PROVIDER` selects which key/model is used at runtime):
 

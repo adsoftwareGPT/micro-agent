@@ -7,16 +7,21 @@ import requests
 from PIL import Image
 
 # ── Load .env (so keys stay out of source but local runs "just work") ───────
-# python-dotenv if available, otherwise a minimal fallback parser.
-# Search order (first match wins): $MAGENT_CONFIG_DIR →
+# Minimal inline parser (no external dependency needed).
+# User home: ~/micro-agent/  (created automatically on first run; holds .env
+# and chat logs together so the user has ONE obvious place to edit).
+# Search order (first hit wins): $MAGENT_CONFIG_DIR → ~/micro-agent →
 # $XDG_CONFIG_HOME/micro-agent → ~/.config/micro-agent →
-# <script dir> (fallback for source-tree / git-checkout runs).
+# <script dir> (fallback for source-tree / git-checkout / deb runs).
+USER_HOME_DIR = os.path.join(os.path.expanduser("~"), "micro-agent")
+
 def _candidate_env_dirs():
     here = os.path.dirname(os.path.abspath(__file__))
     dirs = []
     override = os.environ.get("MAGENT_CONFIG_DIR")
     if override:
         dirs.append(os.path.expanduser(override))
+    dirs.append(USER_HOME_DIR)  # primary user-facing location
     xdg = os.environ.get("XDG_CONFIG_HOME")
     if xdg:
         dirs.append(os.path.join(os.path.expanduser(xdg), "micro-agent"))
@@ -47,27 +52,55 @@ def _desired_resource(name: str):
             continue
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
 
-def _load_dotenv_anywhere():
+def _bootstrap_user_home():
+    """First-run helper: create ~/micro-agent/ and seed .env from the bundled
+    .env.example so the user has ONE obvious, writable place to put keys.
+    Prints a short message pointing at it. Idempotent and quiet once .env exists.
+    """
+    existing = _find_resource(".env")
+    if existing:
+        return  # user already has a .env somewhere — leave them alone
+    # Locate the bundled template (shipped next to micro.py in a wheel/deb,
+    # or alongside the source in a git checkout).
+    template = _find_resource(".env.example")
+    try:
+        os.makedirs(USER_HOME_DIR, exist_ok=True)
+        target = os.path.join(USER_HOME_DIR, ".env")
+        if template:
+            with open(template) as src, open(target, "w") as dst:
+                dst.write(src.read())
+        else:
+            # No template shipped (shouldn't happen) — write a minimal stub.
+            with open(target, "w") as dst:
+                dst.write("# micro-agent environment. Fill in your API keys.\n"
+                          "PROVIDER=zai\nZAI_KEY=\nDEEPSEEK_KEY=\n"
+                          "OPENROUTER_KEY=\nOPENCODE_KEY=\n")
+        print(f"\033[1;32mFirst run: created config at {target}\033[0m", file=sys.stderr)
+        print(f"\033[1;32m  Edit it to add your API keys, then start chatting.\033[0m", file=sys.stderr)
+    except OSError as _e:
+        # Couldn't create ~/micro-agent (read-only home, restricted shell, etc.) —
+        # fall back silently; _load_env_file() will simply find no .env.
+        pass
+
+def _load_env_file():
     """Load .env from the first candidate dir that has one.
 
-    Also ensures XDG user dir exists for first-time `micro-agent` runs.
+    Uses a minimal built-in parser (plain `KEY=VALUE` lines, optional quotes,
+    `#` comments) — no external dependency.
     """
     p = _find_resource(".env")
     if not p:
         return
-    try:
-        from dotenv import load_dotenv
-        load_dotenv(p)
-    except ImportError:
-        with open(p) as _f:
-            for _line in _f:
-                _line = _line.strip()
-                if not _line or _line.startswith("#") or "=" not in _line:
-                    continue
-                _k, _, _v = _line.partition("=")
-                os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+    with open(p) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line:
+                continue
+            _k, _, _v = _line.partition("=")
+            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 
-_load_dotenv_anywhere()
+_bootstrap_user_home()
+_load_env_file()
 
 # ── Config ──────────────────────────────────────────────────────────────────
 # Set PROVIDER to "zai" or "deepseek" or "openrouter" or "opencode" or "ollama"
@@ -120,7 +153,7 @@ _USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0",
 ]
 
-SYSTEM_PROMPT = "- You are an AI expert having full linux at hand\n- current date: {current_date}\n- Chat history (user & agent messages) is logged to chat.*.log.txt in the project dir (format: chat.YYYYMMDD_HHMMSS.log.txt, newest by filename sort)."
+SYSTEM_PROMPT = "- You are an AI expert having full linux at hand\n- current date: {current_date}\n- Chat history (user & agent messages) is logged to ~/micro-agent/chat.*.log.txt (format: chat.YYYYMMDD_HHMMSS.log.txt, newest by filename sort)."
 
 # ── Chat Logger ─────────────────────────────────────────────────────────────
 # Write logs to the first writable user dir (XDG), falling back to the script

@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "micro-agent"
+version = "0.1.0"
+description = "Tiny terminal AI agent that drives a real Chromium browser over CDP."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "adsoftware" }]
+keywords = ["ai", "agent", "cli", "browser", "cdp", "llm"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+]
+dependencies = [
+    "requests",
+    "pillow",
+]
+
+[project.optional-dependencies]
+# DuckDuckGo web search — optional since not all users need search and `ddgs`
+# is not packaged in Debian apt (only on PyPI).
+search = ["ddgs"]
+
+[project.scripts]
+# Creates a `micro-agent` command on PATH that calls micro.main()
+micro-agent = "micro:main"
+
+[project.urls]
+Homepage = "https://github.com/adsoftwareGPT/micro-agent"
+Repository = "https://github.com/adsoftwareGPT/micro-agent"
+Issues = "https://github.com/adsoftwareGPT/micro-agent/issues"
+
+# ── Packaging: ship the 3 sibling modules as flat top-level modules ──────────
+# cdp_fetch and browser_action are imported by micro.py as top-level siblings
+# (e.g. `from cdp_fetch import fetch_webpage`), so they must be installed as
+# flat modules, not nested under a package.
+[tool.hatch.build.targets.wheel]
+packages = ["micro.py", "cdp_fetch.py", "browser_action.py"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "micro.py",
+    "cdp_fetch.py",
+    "browser_action.py",
+    ".env.example",
+    "README.md",
+    "LICENSE",
+    "build-deb.sh",
+]

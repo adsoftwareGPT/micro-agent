@@ -100,7 +100,7 @@ Priority: optional
 Architecture: ${ARCH}
 Installed-Size: ${INSTALLED_SIZE}
 Maintainer: ${MAINTAINER}
-Depends: python3 (>= 3.10), python3-requests, python3-pil, python3-dotenv
+Depends: python3 (>= 3.10), python3-requests, python3-pil
 Recommends: chromium | chromium-browser | google-chrome
 Suggests: gnome-screenshot | scrot, python3-pip
 Description: ${DESC}
