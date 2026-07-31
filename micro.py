@@ -73,7 +73,7 @@ PROVIDERS = {
     }
     for name, url, model in [
         ("zai",        "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-5.2"),
-        ("deepseek",   "https://api.deepseek.com/chat/completions",            "deepseek-v4-flash-0731"),
+        ("deepseek",   "https://api.deepseek.com/chat/completions",            "deepseek-v4-flash"),
         ("openrouter", "https://openrouter.ai/api/v1/chat/completions",        "xiaomi/mimo-v2.5"),
         ("opencode",   "https://opencode.ai/zen/v1/chat/completions",          "deepseek-v4-flash-free"),
         ("ollama",     "http://localhost:11434/v1/chat/completions",            "glm-5.2:cloud"),
