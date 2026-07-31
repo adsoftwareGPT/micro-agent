@@ -6,84 +6,38 @@ from typing import Optional
 import requests
 from PIL import Image
 
-# ── Load .env (so keys stay out of source but local runs "just work") ───────
+# ── Load .env from the base folder (alongside micro.py) ─────────────────────
 # Minimal inline parser (no external dependency needed).
-# User home: ~/micro-agent/  (created automatically on first run; holds .env
-# and chat logs together so the user has ONE obvious place to edit).
-# Search order (first hit wins): $MAGENT_CONFIG_DIR → ~/micro-agent →
-# $XDG_CONFIG_HOME/micro-agent → ~/.config/micro-agent →
-# <script dir> (fallback for source-tree / git-checkout / deb runs).
-USER_HOME_DIR = os.path.join(os.path.expanduser("~"), "micro-agent")
+# Configuration lives next to the script: same directory as micro.py.
+# Override with $MAGENT_CONFIG_DIR if you need it elsewhere.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def _candidate_env_dirs():
-    here = os.path.dirname(os.path.abspath(__file__))
-    dirs = []
+def _config_dir() -> str:
+    """The single directory holding .env and chat logs.
+    Defaults to the folder micro.py lives in (the base folder).
+    Set MAGENT_CONFIG_DIR to relocate everything.
+    """
     override = os.environ.get("MAGENT_CONFIG_DIR")
     if override:
-        dirs.append(os.path.expanduser(override))
-    dirs.append(USER_HOME_DIR)  # primary user-facing location
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg:
-        dirs.append(os.path.join(os.path.expanduser(xdg), "micro-agent"))
-    if home := os.path.expanduser("~"):
-        dirs.append(os.path.join(home, ".config", "micro-agent"))
-    dirs.append(here)  # always last: alongside script (legacy / dev / deb fallback)
-    seen, out = set(), []
-    for d in dirs:
-        if d not in seen:
-            seen.add(d); out.append(d)
-    return out
+        return os.path.abspath(os.path.expanduser(override))
+    return BASE_DIR
 
 def _find_resource(name: str):
-    """Return first existing path to `name` across candidate dirs, else None."""
-    for d in _candidate_env_dirs():
-        p = os.path.join(d, name)
-        if os.path.isfile(p):
-            return p
-    return None
+    """Return path to `name` in the config dir if it exists, else None."""
+    p = os.path.join(_config_dir(), name)
+    return p if os.path.isfile(p) else None
 
 def _desired_resource(name: str):
-    """Where a NEW resource should be written (first writable user dir, else script dir)."""
-    for d in _candidate_env_dirs():
-        try:
-            os.makedirs(d, exist_ok=True)
-            return os.path.join(d, name)
-        except OSError:
-            continue
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
-
-def _bootstrap_user_home():
-    """First-run helper: create ~/micro-agent/ and seed .env from the bundled
-    .env.example so the user has ONE obvious, writable place to put keys.
-    Prints a short message pointing at it. Idempotent and quiet once .env exists.
-    """
-    existing = _find_resource(".env")
-    if existing:
-        return  # user already has a .env somewhere — leave them alone
-    # Locate the bundled template (shipped next to micro.py in a wheel/deb,
-    # or alongside the source in a git checkout).
-    template = _find_resource(".env.example")
+    """Where a NEW resource should be written: the config dir."""
+    d = _config_dir()
     try:
-        os.makedirs(USER_HOME_DIR, exist_ok=True)
-        target = os.path.join(USER_HOME_DIR, ".env")
-        if template:
-            with open(template) as src, open(target, "w") as dst:
-                dst.write(src.read())
-        else:
-            # No template shipped (shouldn't happen) — write a minimal stub.
-            with open(target, "w") as dst:
-                dst.write("# micro-agent environment. Fill in your API keys.\n"
-                          "PROVIDER=zai\nZAI_KEY=\nDEEPSEEK_KEY=\n"
-                          "OPENROUTER_KEY=\nOPENCODE_KEY=\n")
-        print(f"\033[1;32mFirst run: created config at {target}\033[0m", file=sys.stderr)
-        print(f"\033[1;32m  Edit it to add your API keys, then start chatting.\033[0m", file=sys.stderr)
-    except OSError as _e:
-        # Couldn't create ~/micro-agent (read-only home, restricted shell, etc.) —
-        # fall back silently; _load_env_file() will simply find no .env.
+        os.makedirs(d, exist_ok=True)
+    except OSError:
         pass
+    return os.path.join(d, name)
 
 def _load_env_file():
-    """Load .env from the first candidate dir that has one.
+    """Load .env from the config dir (base folder by default).
 
     Uses a minimal built-in parser (plain `KEY=VALUE` lines, optional quotes,
     `#` comments) — no external dependency.
@@ -99,13 +53,12 @@ def _load_env_file():
             _k, _, _v = _line.partition("=")
             os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 
-_bootstrap_user_home()
 _load_env_file()
 
 # ── Config ──────────────────────────────────────────────────────────────────
 # Set PROVIDER to "zai" or "deepseek" or "openrouter" or "opencode" or "ollama"
 # Override via the PROVIDER=... line in your .env or the CLI flag (-zai, -ollama, …).
-PROVIDER = os.environ.get("PROVIDER", "zai")
+PROVIDER = os.environ.get("PROVIDER", "deepseek")
 
 # Per-provider defaults. Each can be overridden by env vars in .env:
 #   <NAME>_URL     — endpoint to use
@@ -120,7 +73,7 @@ PROVIDERS = {
     }
     for name, url, model in [
         ("zai",        "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-5.2"),
-        ("deepseek",   "https://api.deepseek.com/chat/completions",            "deepseek-v4-flash"),
+        ("deepseek",   "https://api.deepseek.com/chat/completions",            "deepseek-v4-flash-0731"),
         ("openrouter", "https://openrouter.ai/api/v1/chat/completions",        "xiaomi/mimo-v2.5"),
         ("opencode",   "https://opencode.ai/zen/v1/chat/completions",          "deepseek-v4-flash-free"),
         ("ollama",     "http://localhost:11434/v1/chat/completions",            "glm-5.2:cloud"),
@@ -153,7 +106,7 @@ _USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0",
 ]
 
-SYSTEM_PROMPT = "- You are an AI expert having full linux at hand\n- current date: {current_date}\n- Chat history (user & agent messages) is logged to ~/micro-agent/chat.*.log.txt (format: chat.YYYYMMDD_HHMMSS.log.txt, newest by filename sort)."
+SYSTEM_PROMPT = "- You are an AI expert having full linux at hand\n- current date: {current_date}\n- Chat history (user & agent messages) is logged to chat.*.log.txt next to micro.py (format: chat.YYYYMMDD_HHMMSS.log.txt, newest by filename sort)."
 
 # ── Chat Logger ─────────────────────────────────────────────────────────────
 # Write logs to the first writable user dir (XDG), falling back to the script
