@@ -1,6 +1,6 @@
 # micro-agent
 
-A tiny terminal AI agent (~620 lines) that calls LLM providers and drives a real Chromium browser over the Chrome DevTools Protocol (CDP).
+A tiny terminal AI agent that calls LLM providers and drives a real Chromium browser over the Chrome DevTools Protocol (CDP).
 
 ## Features
 

@@ -465,6 +465,19 @@ def summarize(name: str, args: dict) -> str:
     s = " ".join(raw.split())
     return s[:100] + "..." if len(s) > 100 else s or "(no details)"
 
+# Key aliases accepted from the model. Models often send intuitive names like
+# "command" for the shell tool even though the declared parameter is "cmd".
+_TOOL_ARG_ALIASES = {
+    "shell": {"command": "cmd"},
+}
+
+def _normalize_tool_args(name: str, args: dict) -> dict:
+    """Map model-provided alias keys onto the executor's declared parameter names."""
+    for alias, canonical in _TOOL_ARG_ALIASES.get(name, {}).items():
+        if alias in args and canonical not in args:
+            args[canonical] = args.pop(alias)
+    return args
+
 def handle_tool_calls(tool_calls: list, messages: list) -> list:
     for tc in tool_calls:
         name, raw = tc["function"]["name"], tc["function"]["arguments"]
@@ -476,14 +489,22 @@ def handle_tool_calls(tool_calls: list, messages: list) -> list:
                 try: args = json.loads(fix(raw), strict=False); break
                 except: pass
             if not args:
-                m = re.search(r'"cmd"\s*:\s*"', raw)
+                m = re.search(r'"(cmd|command)"\s*:\s*"', raw)
                 if name == "shell" and m:
                     p, p_end = m.end(), m.end()
                     while p_end < len(raw) and not (raw[p_end]=='"' and (p_end==0 or raw[p_end-1]!='\\')): p_end+=1
-                    args = {"cmd": raw[p:p_end]}
+                    args = {m.group(1): raw[p:p_end]}
+        args = _normalize_tool_args(name, args)
         print(f"  Step: {name}: {summarize(name, args)}")
         fn = TOOL_EXECUTORS.get(name)
-        output = fn(**args) if fn else f"Unknown tool: {name}"
+        try:
+            output = fn(**args) if fn else f"Unknown tool: {name}"
+        except TypeError as e:
+            # Malformed tool args (e.g. a wrong key name) must not kill the whole
+            # loop; hand the error back to the model so it can retry correctly.
+            output = f"Error: bad arguments for tool '{name}': {e} (received {summarize(name, args)})"
+        except Exception as e:
+            output = f"Error: tool '{name}' failed: {e}"
         messages.append({"role": "tool", "tool_call_id": tc["id"], "content": output})
     return messages
 

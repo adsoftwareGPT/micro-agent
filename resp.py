@@ -3,19 +3,9 @@
 import json, os, subprocess, sys
 import requests
 
-# ── Config: load .env from the script's folder (same simple parser as micro.py)
-_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-if os.path.isfile(_env_path):
-    for _line in open(_env_path):
-        _line = _line.strip()
-        if not _line or _line.startswith("#") or "=" not in _line:
-            continue
-        _k, _, _v = _line.partition("=")
-        os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
-
-API_KEY  = os.environ.get("DEEPSEEK_KEY", "")
-BASE_URL = os.environ.get("DEEPSEEK_URL", "https://api.deepseek.com")
-MODEL    = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")  # the only model the beta supports
+API_KEY  = "sk-c266905a6e734fa089b163603504c3d1" 
+BASE_URL = "https://api.deepseek.com" 
+MODEL    = "deepseek-v4-flash" 
 ENDPOINT = BASE_URL.rstrip("/") + "/responses"
 
 # ── Tool def: Responses-API shape (function flattened to top level) ────────
@@ -124,9 +114,10 @@ def main():
     print("Type 'quit' to exit. Ask it to run commands (e.g. 'list my files').\n")
 
     instructions = (
-        "You are a concise terminal assistant on a Linux machine. "
+        "You are an AI agent on a Linux machine. "
         "Use the `shell` tool to run commands when the user asks for action, "
-        "then summarize the result in one or two lines."
+        "Show one-liner comments when working."
+        "Always provide a concise summary."
     )
     history = []  # list of input items (persists for the whole session)
 
