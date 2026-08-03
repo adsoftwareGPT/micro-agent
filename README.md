@@ -7,7 +7,7 @@ A tiny terminal AI agent that calls LLM providers and drives a real Chromium bro
 - **Multi-provider** — GLM 5.2 (Z.ai), DeepSeek, OpenRouter, OpenCode, Ollama
 - **Browser control** — drives Chromium via CDP (navigate, click, type, scroll, screenshot)
 - **Shell execution** — run terminal commands from chat
-- **Vision** — screenshot analysis via the LLM
+- **Vision** — screenshot analysis via the LLM; requires an OpenRouter API key (`OPENROUTER_KEY` in `.env`)
 - **Web fetch** — JS-rendered page extraction (`cdp_fetch`)
 - **DuckDuckGo search** — optional (`pip install '.[search]'`)
 
