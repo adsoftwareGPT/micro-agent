@@ -42,11 +42,11 @@ jobs:
 
       - name: Lint with ruff
         run: |
-          ruff check micro.py cdp_fetch.py browser_action.py pyproject.toml
+          ruff check micro.py cdp_fetch.py browser_action.py tests pyproject.toml
 
       - name: Format check with ruff
         run: |
-          ruff format --check micro.py cdp_fetch.py browser_action.py
+          ruff format --check micro.py cdp_fetch.py browser_action.py tests
 
       - name: Test with pytest
         run: |
