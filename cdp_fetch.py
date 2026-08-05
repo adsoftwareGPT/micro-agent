@@ -16,20 +16,20 @@ import subprocess
 import sys
 import time
 import urllib.request
-from typing import Optional
 
 CDP_PORT = 9222
 CDP_HOST = "127.0.0.1"
-FETCH_TIMEOUT = 45        # increased — real rendering + bot checks take longer
-RENDER_WAIT = 3           # wait after load for JS to execute
-CLOUDFLARE_WAIT = 10      # extra wait if Cloudflare challenge detected
+FETCH_TIMEOUT = 45  # increased — real rendering + bot checks take longer
+RENDER_WAIT = 3  # wait after load for JS to execute
+CLOUDFLARE_WAIT = 10  # extra wait if Cloudflare challenge detected
 MAX_TEXT_CHARS = 350000
-STARTUP_TIMEOUT = 15      # seconds to wait for Chromium cold start
+STARTUP_TIMEOUT = 15  # seconds to wait for Chromium cold start
 
 SERVICE_NAME = "chromium-cdp-visible.service"
 
 try:
     import websocket
+
     _HAS_WS = True
 except ImportError:
     _HAS_WS = False
@@ -38,9 +38,7 @@ except ImportError:
 def _cdp_ping():
     """Quick check if Chromium CDP is responding."""
     try:
-        urllib.request.urlopen(
-            f"http://{CDP_HOST}:{CDP_PORT}/json/version", timeout=2
-        )
+        urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json/version", timeout=2)
         return True
     except Exception:
         return False
@@ -56,9 +54,7 @@ CHROMIUM_BIN_CANDIDATES = [
     "/usr/bin/microsoft-edge-stable",
 ]
 
-SERVICE_FILE = os.path.expanduser(
-    "~/.config/systemd/user/chromium-cdp-visible.service"
-)
+SERVICE_FILE = os.path.expanduser("~/.config/systemd/user/chromium-cdp-visible.service")
 
 
 def find_chromium_binary():
@@ -67,8 +63,11 @@ def find_chromium_binary():
         if os.path.isfile(p):
             return p
     for name in (
-        "chromium", "chromium-browser", "google-chrome",
-        "google-chrome-stable", "microsoft-edge",
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "google-chrome-stable",
+        "microsoft-edge",
     ):
         p = shutil.which(name)
         if p:
@@ -123,7 +122,7 @@ def ensure_chromium_installed(auto_install=True, verbose=True):
 
     runner = cmd if os.geteuid() == 0 else ["sudo", "-n"] + cmd
     try:
-        proc = subprocess.run(runner, capture_output=True, text=True, timeout=900)
+        proc = subprocess.run(runner, capture_output=True, text=True, timeout=900, check=False)
     except Exception as e:
         if verbose:
             print(f"cdp_fetch: chromium install failed to run: {e}", file=sys.stderr)
@@ -161,15 +160,14 @@ def _ensure_chromium():
         return True
 
     # Install Chromium on-demand if it's missing
-    if not find_chromium_binary():
-        if not ensure_chromium_installed():
-            return False
+    if not find_chromium_binary() and not ensure_chromium_installed():
+        return False
 
     # Warn if the service file points at a binary that isn't installed
     if os.path.isfile(SERVICE_FILE):
         try:
             with open(SERVICE_FILE) as f:
-                m = re.search(r"^ExecStart=(\S+)", f.read(), re.M)
+                m = re.search(r"^ExecStart=(\S+)", f.read(), re.MULTILINE)
             if m and not os.path.isfile(m.group(1)):
                 print(
                     f"cdp_fetch: warning: {SERVICE_NAME} ExecStart points at "
@@ -183,7 +181,9 @@ def _ensure_chromium():
     try:
         subprocess.run(
             ["systemctl", "--user", "start", SERVICE_NAME],
-            capture_output=True, timeout=5,
+            capture_output=True,
+            timeout=5,
+            check=False,
         )
     except Exception:
         pass
@@ -210,7 +210,9 @@ def shutdown_chromium():
     try:
         subprocess.run(
             ["systemctl", "--user", "stop", SERVICE_NAME],
-            capture_output=True, timeout=5,
+            capture_output=True,
+            timeout=5,
+            check=False,
         )
     except Exception:
         pass
@@ -222,9 +224,7 @@ def _cdp_fetch(url, timeout=FETCH_TIMEOUT):
         return None
 
     try:
-        r = urllib.request.urlopen(
-            f"http://{CDP_HOST}:{CDP_PORT}/json", timeout=5
-        )
+        r = urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json", timeout=5)
         pages = json.loads(r.read())
         page_ws = next(
             (p["webSocketDebuggerUrl"] for p in pages if p["type"] == "page"),
@@ -238,6 +238,7 @@ def _cdp_fetch(url, timeout=FETCH_TIMEOUT):
 
     try:
         msg_id = 0
+
         def cdp(method, params=None):
             nonlocal msg_id
             msg_id += 1
@@ -258,10 +259,13 @@ def _cdp_fetch(url, timeout=FETCH_TIMEOUT):
         cdp("Network.enable")
 
         # Set a realistic User-Agent (strip HeadlessChrome)
-        cdp("Network.setUserAgentOverride", {
-            "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-            "platform": "Linux x86_64",
-        })
+        cdp(
+            "Network.setUserAgentOverride",
+            {
+                "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+                "platform": "Linux x86_64",
+            },
+        )
 
         cdp("Page.navigate", {"url": url})
 
@@ -279,40 +283,55 @@ def _cdp_fetch(url, timeout=FETCH_TIMEOUT):
         time.sleep(RENDER_WAIT)
 
         # Check for Cloudflare challenge — wait longer if detected
-        title_result = cdp("Runtime.evaluate", {
-            "expression": "document.title",
-            "returnByValue": True,
-        })
+        title_result = cdp(
+            "Runtime.evaluate",
+            {
+                "expression": "document.title",
+                "returnByValue": True,
+            },
+        )
         page_title = title_result.get("result", {}).get("value", "")
 
         # Cloudflare / bot challenge indicators
-        if any(s in page_title.lower() for s in [
-            "just a moment", "attention required", "checking your browser",
-            "ddos protection", "cloudflare",
-        ]):
+        if any(
+            s in page_title.lower()
+            for s in [
+                "just a moment",
+                "attention required",
+                "checking your browser",
+                "ddos protection",
+                "cloudflare",
+            ]
+        ):
             # Wait for challenge to resolve
             time.sleep(CLOUDFLARE_WAIT)
         else:
             time.sleep(1)
 
         # Dismiss cookie consent banners
-        cdp("Runtime.evaluate", {
-            "expression": (
-                "var b=document.querySelector('#sp-cc-accept')"
-                "||document.querySelector('#onetrust-accept-btn-handler')"
-                "||document.querySelector('[data-testid=\"cookie-policy-dialog-accept-button\"]')"
-                "||document.querySelector('button[id*=\"accept\"]');"
-                "if(b)b.click()"
-            ),
-            "returnByValue": True,
-        })
+        cdp(
+            "Runtime.evaluate",
+            {
+                "expression": (
+                    "var b=document.querySelector('#sp-cc-accept')"
+                    "||document.querySelector('#onetrust-accept-btn-handler')"
+                    "||document.querySelector('[data-testid=\"cookie-policy-dialog-accept-button\"]')"
+                    "||document.querySelector('button[id*=\"accept\"]');"
+                    "if(b)b.click()"
+                ),
+                "returnByValue": True,
+            },
+        )
         time.sleep(1)
 
         # Scroll down to trigger lazy-loaded content
-        cdp("Runtime.evaluate", {
-            "expression": "window.scrollTo(0, document.body.scrollHeight/3)",
-            "returnByValue": True,
-        })
+        cdp(
+            "Runtime.evaluate",
+            {
+                "expression": "window.scrollTo(0, document.body.scrollHeight/3)",
+                "returnByValue": True,
+            },
+        )
         time.sleep(2)
 
         # Extract clean text
@@ -348,27 +367,44 @@ def _curl_get(url, timeout=30):
 
     Returns decoded HTML string, or None on failure.
     """
-    ua = random.choice([
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
-    ])
+    ua = random.choice(
+        [
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
+        ]
+    )
     try:
         proc = subprocess.run(
             [
-                "curl", "-sS", "-L", "--compressed", "--http2",
-                "--max-time", str(timeout),
-                "-A", ua,
-                "-H", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "-H", "Accept-Language: en-US,en;q=0.9",
-                "-H", "Upgrade-Insecure-Requests: 1",
-                "-H", "Sec-Fetch-Dest: document",
-                "-H", "Sec-Fetch-Mode: navigate",
-                "-H", "Sec-Fetch-Site: none",
-                "--tls-max", "1.3",
+                "curl",
+                "-sS",
+                "-L",
+                "--compressed",
+                "--http2",
+                "--max-time",
+                str(timeout),
+                "-A",
+                ua,
+                "-H",
+                "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "-H",
+                "Accept-Language: en-US,en;q=0.9",
+                "-H",
+                "Upgrade-Insecure-Requests: 1",
+                "-H",
+                "Sec-Fetch-Dest: document",
+                "-H",
+                "Sec-Fetch-Mode: navigate",
+                "-H",
+                "Sec-Fetch-Site: none",
+                "--tls-max",
+                "1.3",
                 url,
             ],
-            capture_output=True, timeout=timeout + 5,
+            capture_output=True,
+            timeout=timeout + 5,
+            check=False,
         )
         if proc.returncode != 0 or not proc.stdout:
             return None
@@ -382,22 +418,28 @@ def _urllib_get(url, timeout=30):
 
     Returns decoded HTML string, or None on failure.
     """
-    ua = random.choice([
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
-    ])
+    ua = random.choice(
+        [
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36",
+        ]
+    )
     try:
-        req = urllib.request.Request(url, headers={
-            "User-Agent": ua,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate",
-        })
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": ua,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate",
+            },
+        )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = resp.read()
         # urllib does not auto-decompress; handle gzip manually
         if resp.headers.get("Content-Encoding", "").lower() == "gzip":
             import gzip
+
             try:
                 data = gzip.decompress(data)
             except Exception:
@@ -420,17 +462,21 @@ def _http_fetch(url):
             super().__init__()
             self.parts = []
             self._skip = False
+
         def handle_starttag(self, tag, attrs):
             if tag.lower() in ("script", "style"):
                 self._skip = True
+
         def handle_endtag(self, tag):
             if tag.lower() in ("script", "style"):
                 self._skip = False
+
         def handle_data(self, data):
             if not self._skip:
                 t = data.strip()
                 if t:
                     self.parts.append(t)
+
         def get_text(self):
             return chr(10).join(self.parts)
 
@@ -459,12 +505,10 @@ def fetch_webpage(url):
 
     # URL-encode non-ASCII characters (fixes German umlaut URLs)
     from urllib.parse import quote, urlparse, urlunparse
+
     parsed = urlparse(url)
-    encoded_path = quote(parsed.path, safe='/')
-    encoded_url = urlunparse((
-        parsed.scheme, parsed.netloc, encoded_path,
-        parsed.params, parsed.query, parsed.fragment
-    ))
+    encoded_path = quote(parsed.path, safe="/")
+    encoded_url = urlunparse((parsed.scheme, parsed.netloc, encoded_path, parsed.params, parsed.query, parsed.fragment))
 
     if _ensure_chromium():
         text = _cdp_fetch(encoded_url)

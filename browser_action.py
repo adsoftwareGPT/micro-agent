@@ -11,7 +11,6 @@ Requires the visible Chromium on port 9222 (same as cdp_fetch.py).
 import json
 import time
 import urllib.request
-from typing import Optional
 
 CDP_PORT = 9222
 CDP_HOST = "127.0.0.1"
@@ -19,12 +18,14 @@ DEFAULT_TIMEOUT = 30
 
 try:
     import websocket
+
     _HAS_WS = True
 except ImportError:
     _HAS_WS = False
 
 
 # ── Low-level CDP helpers ───────────────────────────────────────────────────
+
 
 def _cdp_ping():
     try:
@@ -40,6 +41,7 @@ def _ensure_chromium():
         return True
     try:
         from cdp_fetch import _ensure_chromium as _ec
+
         return _ec()
     except Exception:
         return False
@@ -83,10 +85,7 @@ def _find_google_popup():
         if t.get("type") != "page":
             continue
         u = t.get("url", "")
-        if ("accounts.google.com" in u and
-                "gsi/button" not in u and
-                "gsi/client" not in u and
-                "gsi/iframe" not in u):
+        if "accounts.google.com" in u and "gsi/button" not in u and "gsi/client" not in u and "gsi/iframe" not in u:
             return t
     return None
 
@@ -103,9 +102,9 @@ def _attach_to_target(target_id):
         if not browser_ws_url:
             return None, None
         ws = websocket.create_connection(browser_ws_url, timeout=10, origin="*")
-        ws.send(json.dumps({"id": 1, "method": "Target.attachToTarget", "params": {
-            "targetId": target_id, "flatten": True
-        }}))
+        ws.send(
+            json.dumps({"id": 1, "method": "Target.attachToTarget", "params": {"targetId": target_id, "flatten": True}})
+        )
         deadline = time.time() + 10
         while time.time() < deadline:
             resp = json.loads(ws.recv())
@@ -125,11 +124,16 @@ def _attach_to_target(target_id):
 
 def _cdp_session_eval(ws, session_id, js, msg_id=1):
     """Evaluate JS in a target via a flattened session."""
-    ws.send(json.dumps({
-        "id": msg_id, "method": "Runtime.evaluate",
-        "sessionId": session_id,
-        "params": {"expression": js, "returnByValue": True}
-    }))
+    ws.send(
+        json.dumps(
+            {
+                "id": msg_id,
+                "method": "Runtime.evaluate",
+                "sessionId": session_id,
+                "params": {"expression": js, "returnByValue": True},
+            }
+        )
+    )
     deadline = time.time() + 15
     while time.time() < deadline:
         resp = json.loads(ws.recv())
@@ -186,11 +190,14 @@ class CDPSession:
 
     def eval(self, js, return_by_value=True):
         """Evaluate JS and return the result."""
-        r = self.cdp("Runtime.evaluate", {
-            "expression": js,
-            "returnByValue": return_by_value,
-            "awaitPromise": True,
-        })
+        r = self.cdp(
+            "Runtime.evaluate",
+            {
+                "expression": js,
+                "returnByValue": return_by_value,
+                "awaitPromise": True,
+            },
+        )
         if return_by_value:
             return r.get("result", {}).get("value")
         return r
@@ -205,11 +212,13 @@ class CDPSession:
         """Dispatch a real mouse click at viewport coordinates via Input domain."""
         self.cdp("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
         time.sleep(0.05)
-        self.cdp("Input.dispatchMouseEvent", {
-            "type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1})
+        self.cdp(
+            "Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1}
+        )
         time.sleep(0.05)
-        self.cdp("Input.dispatchMouseEvent", {
-            "type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1})
+        self.cdp(
+            "Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1}
+        )
 
     def click_selector(self, selector):
         """Click an element by CSS selector. Returns True if found and clicked."""
@@ -295,6 +304,7 @@ class CDPSession:
         """Take a screenshot and save to file."""
         r = self.cdp("Page.captureScreenshot", {"format": "jpeg", "quality": 70})
         import base64
+
         data = base64.b64decode(r.get("data", ""))
         with open(path, "wb") as f:
             f.write(data)
@@ -308,6 +318,7 @@ class CDPSession:
 
 
 # ── High-level actions ─────────────────────────────────────────────────────
+
 
 def action_navigate(url, wait=5):
     """Navigate the browser to a URL."""
@@ -384,13 +395,13 @@ def action_get_state():
     pages = _get_pages()
     lines = [f"=== {len(pages)} open tabs ==="]
     for i, p in enumerate(pages):
-        lines.append(f"  {i+1}. [{p.get('title','')[:40]}] {p.get('url','')[:100]}")
+        lines.append(f"  {i + 1}. [{p.get('title', '')[:40]}] {p.get('url', '')[:100]}")
     if pages:
         ws_url = pages[0]["webSocketDebuggerUrl"]
         s = CDPSession(ws_url)
         try:
             info = json.loads(s.get_page_info())
-            lines.append(f"\n=== Active tab ===")
+            lines.append("\n=== Active tab ===")
             lines.append(f"URL: {info['url']}")
             lines.append(f"Title: {info['title']}")
             lines.append(f"\n{info['body'][:800]}")
@@ -497,6 +508,7 @@ def action_scroll(x=None, y=None, selector=None):
 
 # ── login_with_google ──────────────────────────────────────────────────────
 
+
 def _handle_fedcm_dialog(ws, account_email=None):
     """Listen for and handle a FedCM dialog via CDP.
 
@@ -529,10 +541,18 @@ def _handle_fedcm_dialog(ws, account_email=None):
                             break
 
                 selected = accounts[idx]
-                ws.send(json.dumps({"id": 1000, "method": "FedCm.selectAccount", "params": {
-                    "dialogId": dialog_id,
-                    "accountIndex": idx,
-                }}))
+                ws.send(
+                    json.dumps(
+                        {
+                            "id": 1000,
+                            "method": "FedCm.selectAccount",
+                            "params": {
+                                "dialogId": dialog_id,
+                                "accountIndex": idx,
+                            },
+                        }
+                    )
+                )
 
                 # Wait for selectAccount response
                 resp_deadline = time.time() + 5
@@ -550,9 +570,14 @@ def _handle_fedcm_dialog(ws, account_email=None):
     return False, "No FedCM dialog appeared within 15s"
 
 
-def login_with_google(site_url, login_page_url=None, google_btn_selector=None,
-                      google_btn_text="Continue with Google",
-                      account_email=None, wait_after_login=12):
+def login_with_google(
+    site_url,
+    login_page_url=None,
+    google_btn_selector=None,
+    google_btn_text="Continue with Google",
+    account_email=None,
+    wait_after_login=12,
+):
     """Log in to a website using Google OAuth.
 
     Handles TWO Google login mechanisms:
@@ -602,11 +627,12 @@ def login_with_google(site_url, login_page_url=None, google_btn_selector=None,
         body_lower = info.get("body", "").lower()
         login_keywords = ["log in", "sign in", "login", "continue with google"]
         has_login_form = any(kw in body_lower for kw in login_keywords)
-        # Also check: if the URL redirected away from /login to a dashboard/home, we're logged in
-        if not has_login_form or "/login" not in info.get("url", ""):
-            if not has_login_form:
-                steps.append("   ✅ Already logged in (no login form visible)")
-                return "\n".join(steps)
+        # Already logged in? We only treat "log in" / "sign in" / "continue with
+        # google" as indicating NOT logged in ("sign up" alone doesn't count —
+        # logged-in pages often have sign-up links too).
+        if not has_login_form:
+            steps.append("   ✅ Already logged in (no login form visible)")
+            return "\n".join(steps)
 
         # Step 2: Find and click the Google login button
         # Enable FedCM BEFORE clicking — the dialog may appear instantly
@@ -616,16 +642,14 @@ def login_with_google(site_url, login_page_url=None, google_btn_selector=None,
         click_method = ""
 
         # Strategy A: Direct CSS selector
-        if google_btn_selector:
-            if s.click_selector(google_btn_selector):
-                google_clicked = True
-                click_method = f"selector: {google_btn_selector}"
+        if google_btn_selector and s.click_selector(google_btn_selector):
+            google_clicked = True
+            click_method = f"selector: {google_btn_selector}"
 
         # Strategy B: Text match
-        if not google_clicked:
-            if s.click_text(google_btn_text):
-                google_clicked = True
-                click_method = f"text: '{google_btn_text}'"
+        if not google_clicked and s.click_text(google_btn_text):
+            google_clicked = True
+            click_method = f"text: '{google_btn_text}'"
 
         # Strategy C: GIS iframe button (click via Input domain)
         if not google_clicked:
@@ -650,11 +674,11 @@ def login_with_google(site_url, login_page_url=None, google_btn_selector=None,
                         window.__oauthUrl = null;
                         var orig = window.open;
                         window.open = function(url) {{ window.__oauthUrl = url; return orig.apply(window, arguments); }};
-                        var btn = document.getElementById({json.dumps(gis.get('id',''))});
+                        var btn = document.getElementById({json.dumps(gis.get("id", ""))});
                         if (btn) btn.click();
                     """)
                     google_clicked = True
-                    click_method = f"GIS button (id: {gis.get('id','')})"
+                    click_method = f"GIS button (id: {gis.get('id', '')})"
                 elif gis.get("type") == "iframe":
                     s.click_at(gis["x"], gis["y"])
                     google_clicked = True
@@ -696,9 +720,15 @@ def login_with_google(site_url, login_page_url=None, google_btn_selector=None,
                                     idx = i
                                     break
 
-                        s.ws.send(json.dumps({"id": 1001, "method": "FedCm.selectAccount", "params": {
-                            "dialogId": dialog_id, "accountIndex": idx
-                        }}))
+                        s.ws.send(
+                            json.dumps(
+                                {
+                                    "id": 1001,
+                                    "method": "FedCm.selectAccount",
+                                    "params": {"dialogId": dialog_id, "accountIndex": idx},
+                                }
+                            )
+                        )
                         steps.append(f"4. Selected: {accounts[idx].get('email')}")
                         fedcm_handled = True
                         break
@@ -710,7 +740,7 @@ def login_with_google(site_url, login_page_url=None, google_btn_selector=None,
         # If FedCM didn't fire, check for Google popup window
         if not fedcm_handled:
             google_popup = None
-            for attempt in range(5):
+            for _attempt in range(5):
                 time.sleep(2)
                 google_popup = _find_google_popup()
                 if google_popup:
@@ -730,13 +760,17 @@ def login_with_google(site_url, login_page_url=None, google_btn_selector=None,
                             s2.click_selector(f"[data-identifier='{account_email}']")
                             steps.append(f"4. Selected: {account_email}")
                         else:
-                            result = s2.eval("(function(){var e=document.querySelector('[data-identifier]');if(e){e.click();return e.getAttribute('data-identifier')}return 'none'})()")
+                            result = s2.eval(
+                                "(function(){var e=document.querySelector('[data-identifier]');if(e){e.click();return e.getAttribute('data-identifier')}return 'none'})()"
+                            )
                             steps.append(f"4. Auto-selected: {result}")
                         time.sleep(3)
                         # Handle consent if needed
                         ci = json.loads(s2.get_page_info())
                         if "accounts.google.com" in ci.get("url", ""):
-                            s2.eval("""(function(){var b=document.querySelector('#submit_approve_access')||document.querySelector('button[name=submit_approve_access]');if(b)b.click();else{var bs=document.querySelectorAll('button,div[role=button]');for(var b of bs){var t=b.textContent.trim().toLowerCase();if(t.includes('continue')||t.includes('allow')){b.click();break;}}}})()""")
+                            s2.eval(
+                                """(function(){var b=document.querySelector('#submit_approve_access')||document.querySelector('button[name=submit_approve_access]');if(b)b.click();else{var bs=document.querySelectorAll('button,div[role=button]');for(var b of bs){var t=b.textContent.trim().toLowerCase();if(t.includes('continue')||t.includes('allow')){b.click();break;}}}})()"""
+                            )
                             steps.append("   Handled consent screen")
                     finally:
                         s2.close()
@@ -750,14 +784,26 @@ def login_with_google(site_url, login_page_url=None, google_btn_selector=None,
                         time.sleep(3)
                         if account_email:
                             sel = f"[data-identifier='{account_email}']"
-                            _cdp_session_eval(bws, sid, f"var e=document.querySelector('{sel}');if(e)e.click()", msg_id=52)
+                            _cdp_session_eval(
+                                bws, sid, f"var e=document.querySelector('{sel}');if(e)e.click()", msg_id=52
+                            )
                             steps.append(f"4. Selected: {account_email}")
                         else:
-                            r = _cdp_session_eval(bws, sid, "(function(){var e=document.querySelector('[data-identifier]');if(e){e.click();return e.getAttribute('data-identifier')}return 'none'})()", msg_id=52)
+                            r = _cdp_session_eval(
+                                bws,
+                                sid,
+                                "(function(){var e=document.querySelector('[data-identifier]');if(e){e.click();return e.getAttribute('data-identifier')}return 'none'})()",
+                                msg_id=52,
+                            )
                             steps.append(f"4. Auto-selected: {r}")
                         # Handle consent
                         time.sleep(5)
-                        cr = _cdp_session_eval(bws, sid, "(function(){var b=document.querySelector('#submit_approve_access')||document.querySelector('button[name=submit_approve_access]');if(b){b.click();return 'clicked'}var bs=document.querySelectorAll('button,div[role=button]');for(var b of bs){var t=b.textContent.trim().toLowerCase();if(t.includes('continue')||t.includes('allow')){b.click();return 'clicked:'+b.textContent.trim()}}return 'no consent'})()", msg_id=53)
+                        cr = _cdp_session_eval(
+                            bws,
+                            sid,
+                            "(function(){var b=document.querySelector('#submit_approve_access')||document.querySelector('button[name=submit_approve_access]');if(b){b.click();return 'clicked'}var bs=document.querySelectorAll('button,div[role=button]');for(var b of bs){var t=b.textContent.trim().toLowerCase();if(t.includes('continue')||t.includes('allow')){b.click();return 'clicked:'+b.textContent.trim()}}return 'no consent'})()",
+                            msg_id=53,
+                        )
                         if cr and "click" in str(cr).lower():
                             steps.append(f"   Consent: {cr}")
                         bws.close()
@@ -805,6 +851,7 @@ def login_with_google(site_url, login_page_url=None, google_btn_selector=None,
 
 # ── Main dispatcher ────────────────────────────────────────────────────────
 
+
 def browser_action(action, **kwargs):
     """Main entry point — dispatch browser actions.
 
@@ -825,16 +872,20 @@ def browser_action(action, **kwargs):
     actions = {
         "navigate": lambda: action_navigate(kwargs.get("url", ""), kwargs.get("wait", 5)),
         "click": lambda: action_click(
-            selector=kwargs.get("selector"), text=kwargs.get("text"),
-            x=kwargs.get("x"), y=kwargs.get("y"),
-            iframe_selector=kwargs.get("iframe_selector")),
+            selector=kwargs.get("selector"),
+            text=kwargs.get("text"),
+            x=kwargs.get("x"),
+            y=kwargs.get("y"),
+            iframe_selector=kwargs.get("iframe_selector"),
+        ),
         "type": lambda: action_type(kwargs.get("selector", ""), kwargs.get("text", "")),
         "scroll": lambda: action_scroll(kwargs.get("x"), kwargs.get("y"), kwargs.get("selector")),
         "wait": lambda: action_wait(
             seconds=kwargs.get("seconds", 5),
             url_contains=kwargs.get("url_contains"),
             text_contains=kwargs.get("text_contains"),
-            timeout=kwargs.get("timeout", 30)),
+            timeout=kwargs.get("timeout", 30),
+        ),
         "screenshot": lambda: action_screenshot(kwargs.get("path", "/tmp/browser_screenshot.jpg")),
         "eval": lambda: action_eval(kwargs.get("script", "")),
         "get_state": lambda: action_get_state(),
@@ -844,7 +895,8 @@ def browser_action(action, **kwargs):
             google_btn_selector=kwargs.get("btn_selector"),
             google_btn_text=kwargs.get("btn_text", "Continue with Google"),
             account_email=kwargs.get("email"),
-            wait_after_login=kwargs.get("wait", 12)),
+            wait_after_login=kwargs.get("wait", 12),
+        ),
     }
 
     fn = actions.get(action)
@@ -859,6 +911,7 @@ def browser_action(action, **kwargs):
 
 if __name__ == "__main__":
     import sys
+
     if len(sys.argv) < 2:
         print("Usage: browser_action.py <action> [args...]")
         print("Actions: navigate, click, type, scroll, eval, wait, screenshot, get_state, login_google")

@@ -1,34 +1,58 @@
-name: Python Package using Conda
+name: CI
 
-on: [push]
+# Runs on every push (and pull requests) to make sure the package builds,
+# lints clean, and any tests pass. The project is packaged with pyproject.toml
+# (hatchling), so we install the package itself (not a stale conda env) so the
+# console-script entry point and the flat sibling modules all resolve.
+
+on:
+  push:
+  pull_request:
 
 jobs:
-  build-linux:
+  test:
     runs-on: ubuntu-latest
     strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
       max-parallel: 5
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
-      with:
-        python-version: '3.10'
-    - name: Add conda to system path
-      run: |
-        # $CONDA is an environment variable pointing to the root of the miniconda directory
-        echo $CONDA/bin >> $GITHUB_PATH
-    - name: Install dependencies
-      run: |
-        conda env update --file environment.yml --name base
-    - name: Lint with flake8
-      run: |
-        conda install flake8
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    - name: Test with pytest
-      run: |
-        conda install pytest
-        pytest
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build ruff pytest
+
+      - name: Install the package (editable) with optional extras
+        run: |
+          python -m pip install -e ".[search]"
+
+      - name: Compile-check every module
+        # py_compile catches import-time/syntax errors across all supported
+        # Python versions without needing to execute browser/CDP code.
+        run: |
+          python -m py_compile micro.py cdp_fetch.py browser_action.py
+
+      - name: Lint with ruff
+        run: |
+          ruff check micro.py cdp_fetch.py browser_action.py pyproject.toml
+
+      - name: Format check with ruff
+        run: |
+          ruff format --check micro.py cdp_fetch.py browser_action.py
+
+      - name: Test with pytest
+        run: |
+          python -m pytest
+
+      - name: Verify the console entry point is wired up
+        # Ensures `[project.scripts] micro-agent = "micro:main"` resolves.
+        run: |
+          python -c "import micro; assert callable(micro.main), 'micro.main is not callable'"

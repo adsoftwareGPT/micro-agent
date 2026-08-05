@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 
-import argparse, json, os, re, select, subprocess, sys, termios, time, random
+import argparse
+import json
+import os
+import random
+import re
+import select
+import subprocess
+import sys
+import termios
+import time
 from io import BytesIO
-from typing import Optional
+
 import requests
 from PIL import Image
 
@@ -11,6 +20,7 @@ from PIL import Image
 # Configuration lives next to the script: same directory as micro.py.
 # Override with $MAGENT_CONFIG_DIR if you need it elsewhere.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def _config_dir() -> str:
     """The single directory holding .env and chat logs.
@@ -22,10 +32,12 @@ def _config_dir() -> str:
         return os.path.abspath(os.path.expanduser(override))
     return BASE_DIR
 
+
 def _find_resource(name: str):
     """Return path to `name` in the config dir if it exists, else None."""
     p = os.path.join(_config_dir(), name)
     return p if os.path.isfile(p) else None
+
 
 def _desired_resource(name: str):
     """Where a NEW resource should be written: the config dir."""
@@ -35,6 +47,7 @@ def _desired_resource(name: str):
     except OSError:
         pass
     return os.path.join(d, name)
+
 
 def _load_env_file():
     """Load .env from the config dir (base folder by default).
@@ -53,6 +66,7 @@ def _load_env_file():
             _k, _, _v = _line.partition("=")
             os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 
+
 _load_env_file()
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -67,16 +81,16 @@ PROVIDER = os.environ.get("PROVIDER", "deepseek")
 # Example .env:  OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
 PROVIDERS = {
     name: {
-        "url":   os.environ.get(f"{name.upper()}_URL",   url),
+        "url": os.environ.get(f"{name.upper()}_URL", url),
         "model": os.environ.get(f"{name.upper()}_MODEL", model),
-        "key":   os.environ.get(f"{name.upper()}_KEY", ""),
+        "key": os.environ.get(f"{name.upper()}_KEY", ""),
     }
     for name, url, model in [
-        ("zai",        "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-5.2"),
-        ("deepseek",   "https://api.deepseek.com/chat/completions",            "deepseek-v4-flash"),
-        ("openrouter", "https://openrouter.ai/api/v1/chat/completions",        "xiaomi/mimo-v2.5"),
-        ("opencode",   "https://opencode.ai/zen/v1/chat/completions",          "deepseek-v4-flash-free"),
-        ("ollama",     "http://localhost:11434/v1/chat/completions",            "glm-5.2:cloud"),
+        ("zai", "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-5.2"),
+        ("deepseek", "https://api.deepseek.com/chat/completions", "deepseek-v4-flash"),
+        ("openrouter", "https://openrouter.ai/api/v1/chat/completions", "xiaomi/mimo-v2.5"),
+        ("opencode", "https://opencode.ai/zen/v1/chat/completions", "deepseek-v4-flash-free"),
+        ("ollama", "http://localhost:11434/v1/chat/completions", "glm-5.2:cloud"),
     ]
 }
 
@@ -97,7 +111,7 @@ VISION_TIMEOUT = 120
 THINKING_ENABLED = False
 BREAK_KEY_ENABLED = True
 _break_requested = False
-_http_session: Optional[requests.Session] = None
+_http_session: requests.Session | None = None
 
 _USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -116,21 +130,25 @@ LOG_DIR = os.path.dirname(_desired_resource("chat.log"))
 LOG_BASE = os.path.join(LOG_DIR, "chat")
 LOG_KEEP = 3  # keep up to 3 timestamped log files
 
+
 def _ts_path(suffix: str = "") -> str:
     """Generate a chat log path with timestamp, e.g. chat.20260718_193713.txt"""
     ts = time.strftime("%Y%m%d_%H%M%S")
     base = f"{LOG_BASE}.{ts}"
     return base if not suffix else f"{base}.{suffix}.txt"
 
+
 class ChatLogger:
     """Logs user and agent messages (not tool outputs) to timestamped rolling files."""
+
     def __init__(self):
         self._file = None
         self._path = None
         self._clean_old_logs()
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
         self._path = _ts_path("log")
-        self._file = open(self._path, "a", encoding="utf-8")
+        # Keep the handle open for the session's lifetime (closed in close()).
+        self._file = open(self._path, "a", encoding="utf-8")  # noqa: SIM115
         self._write("=" * 60)
         self._write(f"Chat started at {ts}")
         self._write("=" * 60)
@@ -138,6 +156,7 @@ class ChatLogger:
     def _clean_old_logs(self):
         """Remove excess old logs, keep only LOG_KEEP most recent."""
         import glob
+
         pattern = os.path.join(LOG_DIR, "chat.*.log.txt")
         files = sorted(glob.glob(pattern))
         while len(files) > LOG_KEEP:
@@ -176,76 +195,166 @@ class ChatLogger:
             self._write(f"--- Chat ended at {ts} ---")
             self._file.close()
 
-_chat_logger: Optional[ChatLogger] = None
+
+_chat_logger: ChatLogger | None = None
+
+
 def get_logger() -> ChatLogger:
     global _chat_logger
     if _chat_logger is None:
         _chat_logger = ChatLogger()
     return _chat_logger
 
+
 # ── HTTP Session ────────────────────────────────────────────────────────────
 def _get_session() -> requests.Session:
     global _http_session
     if _http_session is None:
         _http_session = requests.Session()
-        _http_session.headers.update({
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Accept-Encoding": "gzip, deflate, br", "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1", "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1",
-        })
+        _http_session.headers.update(
+            {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+            }
+        )
     _http_session.headers.update({"User-Agent": random.choice(_USER_AGENTS)})
     return _http_session
 
+
 # ── Tool Definitions ────────────────────────────────────────────────────────
 TOOLS = [
-    {"type": "function", "function": {
-        "name": "shell", "description": "Run any shell command",
-        "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]}}},
-    {"type": "function", "function": {
-        "name": "vision",
-        "description": "Analyze what is visible on screen by taking a screenshot, compressing it to ~67KB JPEG, and sending it to a vision AI on OpenRouter. Returns a text description of windows, applications, UI elements, and any visible content.",
-        "parameters": {"type": "object", "properties": {
-            "prompt": {"type": "string", "description": "Optional specific question about what to look for"},
-            "path": {"type": "string", "description": "Optional path to an existing image file"},
-            "delay": {"type": "integer", "description": "Optional delay in seconds before capturing (default: 0)"}
-        }, "required": []}}},
-    {"type": "function", "function": {
-        "name": "ddg_search",
-        "description": "Search DuckDuckGo from the terminal. Returns up to 30 results with titles, URLs, and snippets. Use when you need to find information, documentation, tutorials, or any web content.",
-        "parameters": {"type": "object", "properties": {
-            "query": {"type": "string", "description": "The search query"}
-        }, "required": ["query"]}}},
-    {"type": "function", "function": {
-        "name": "fetch_webpage",
-        "description": "Fetch a webpage and return its content as plain text. Uses headless Chromium to render JavaScript, so it works on dynamic sites (SPAs, React, Vue). Strips HTML tags and extracts readable text. Handles JS-rendered content that plain HTTP cannot. Use when you need the full content of a web page.",
-        "parameters": {"type": "object", "properties": {
-            "url": {"type": "string", "description": "The full URL to fetch, including scheme (e.g. https://example.com/page)"}
-        }, "required": ["url"]}}},
-    {"type": "function", "function": {
-        "name": "browser_action",
-        "description": "Control the browser interactively: click elements, type text, navigate, scroll, take screenshots, wait for conditions, check browser state, and LOG IN to websites using Google OAuth. Actions: navigate, click, type, scroll, eval (run JS), wait, screenshot, get_state, login_google. The login_google action handles the full Google Identity Services flow automatically (FedCM + popup + redirect). For infinite-scroll feeds (X.com, Reddit, Threads): call `eval` to extract visible posts, then `scroll` (no args = one viewport down), then `eval` again — own the loop yourself, dedup by post permalink, and stop when several consecutive scrolls yield no new posts.",
-        "parameters": {"type": "object", "properties": {
-            "action": {"type": "string", "enum": ["navigate", "click", "type", "scroll", "eval", "wait", "screenshot", "get_state", "login_google"],
-                       "description": "The browser action to perform"},
-            "url": {"type": "string", "description": "URL for navigate/login_google actions"},
-            "selector": {"type": "string", "description": "CSS selector for click/type actions"},
-            "text": {"type": "string", "description": "Text to match for click action, or text to type for type action"},
-            "x": {"type": "integer", "description": "X coordinate for click action, or horizontal scroll target"},
-            "y": {"type": "integer", "description": "Y coordinate for click action, or vertical scroll target"},
-            "email": {"type": "string", "description": "Google account email for login_google (optional, auto-selects first if omitted)"},
-            "login_url": {"type": "string", "description": "Direct login URL for login_google (optional, defaults to url+/login)"},
-            "btn_text": {"type": "string", "description": "Text of the Google login button (default: 'Continue with Google')"},
-            "seconds": {"type": "integer", "description": "Seconds to wait (for wait action)"},
-            "url_contains": {"type": "string", "description": "Wait until URL contains this string"},
-            "text_contains": {"type": "string", "description": "Wait until page text contains this string"},
-            "path": {"type": "string", "description": "File path for screenshot (default: /tmp/browser_screenshot.jpg)"},
-            "wait": {"type": "integer", "description": "Wait time in seconds (for navigate/login_google)"},
-            "iframe_selector": {"type": "string", "description": "CSS selector for iframe to click (for GIS buttons)"},
-            "script": {"type": "string", "description": "JavaScript expression to evaluate (for eval action). Use to extract page content: document.querySelectorAll('article').length, get_text(), JSON.stringify([...]), etc."}
-        }, "required": ["action"]}}},
+    {
+        "type": "function",
+        "function": {
+            "name": "shell",
+            "description": "Run any shell command",
+            "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vision",
+            "description": "Analyze what is visible on screen by taking a screenshot, compressing it to ~67KB JPEG, and sending it to a vision AI on OpenRouter. Returns a text description of windows, applications, UI elements, and any visible content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "Optional specific question about what to look for"},
+                    "path": {"type": "string", "description": "Optional path to an existing image file"},
+                    "delay": {
+                        "type": "integer",
+                        "description": "Optional delay in seconds before capturing (default: 0)",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ddg_search",
+            "description": "Search DuckDuckGo from the terminal. Returns up to 30 results with titles, URLs, and snippets. Use when you need to find information, documentation, tutorials, or any web content.",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "The search query"}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_webpage",
+            "description": "Fetch a webpage and return its content as plain text. Uses headless Chromium to render JavaScript, so it works on dynamic sites (SPAs, React, Vue). Strips HTML tags and extracts readable text. Handles JS-rendered content that plain HTTP cannot. Use when you need the full content of a web page.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The full URL to fetch, including scheme (e.g. https://example.com/page)",
+                    }
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_action",
+            "description": "Control the browser interactively: click elements, type text, navigate, scroll, take screenshots, wait for conditions, check browser state, and LOG IN to websites using Google OAuth. Actions: navigate, click, type, scroll, eval (run JS), wait, screenshot, get_state, login_google. The login_google action handles the full Google Identity Services flow automatically (FedCM + popup + redirect). For infinite-scroll feeds (X.com, Reddit, Threads): call `eval` to extract visible posts, then `scroll` (no args = one viewport down), then `eval` again — own the loop yourself, dedup by post permalink, and stop when several consecutive scrolls yield no new posts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "navigate",
+                            "click",
+                            "type",
+                            "scroll",
+                            "eval",
+                            "wait",
+                            "screenshot",
+                            "get_state",
+                            "login_google",
+                        ],
+                        "description": "The browser action to perform",
+                    },
+                    "url": {"type": "string", "description": "URL for navigate/login_google actions"},
+                    "selector": {"type": "string", "description": "CSS selector for click/type actions"},
+                    "text": {
+                        "type": "string",
+                        "description": "Text to match for click action, or text to type for type action",
+                    },
+                    "x": {
+                        "type": "integer",
+                        "description": "X coordinate for click action, or horizontal scroll target",
+                    },
+                    "y": {"type": "integer", "description": "Y coordinate for click action, or vertical scroll target"},
+                    "email": {
+                        "type": "string",
+                        "description": "Google account email for login_google (optional, auto-selects first if omitted)",
+                    },
+                    "login_url": {
+                        "type": "string",
+                        "description": "Direct login URL for login_google (optional, defaults to url+/login)",
+                    },
+                    "btn_text": {
+                        "type": "string",
+                        "description": "Text of the Google login button (default: 'Continue with Google')",
+                    },
+                    "seconds": {"type": "integer", "description": "Seconds to wait (for wait action)"},
+                    "url_contains": {"type": "string", "description": "Wait until URL contains this string"},
+                    "text_contains": {"type": "string", "description": "Wait until page text contains this string"},
+                    "path": {
+                        "type": "string",
+                        "description": "File path for screenshot (default: /tmp/browser_screenshot.jpg)",
+                    },
+                    "wait": {"type": "integer", "description": "Wait time in seconds (for navigate/login_google)"},
+                    "iframe_selector": {
+                        "type": "string",
+                        "description": "CSS selector for iframe to click (for GIS buttons)",
+                    },
+                    "script": {
+                        "type": "string",
+                        "description": "JavaScript expression to evaluate (for eval action). Use to extract page content: document.querySelectorAll('article').length, get_text(), JSON.stringify([...]), etc.",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
 ]
+
 
 # ── Provider Registry ──────────────────────────────────────────────────────
 # PROVIDERS is built above in the Config section; to add a new provider, just
@@ -257,6 +366,7 @@ def get_provider():
         raise ValueError(f"Unknown PROVIDER '{PROVIDER}'. Choose from: {', '.join(PROVIDERS)}")
     return p
 
+
 # ── LLM Call ────────────────────────────────────────────────────────────────
 def call_llm(messages, tools=None, tool_choice="auto", model=None, api_key=None):
     p = get_provider()
@@ -266,47 +376,52 @@ def call_llm(messages, tools=None, tool_choice="auto", model=None, api_key=None)
     if api_key is None:
         api_key = p["key"]
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    data = {"model": model, "messages": messages, "tools": tools,
-            "tool_choice": tool_choice, "max_tokens": MAX_TOKENS}
+    data = {"model": model, "messages": messages, "tools": tools, "tool_choice": tool_choice, "max_tokens": MAX_TOKENS}
     data["thinking"] = {"type": "enabled" if THINKING_ENABLED else "disabled"}
     last_error = None
     for attempt in range(1, MAX_API_RETRIES + 1):
         try:
-            resp = requests.post(url, headers=headers,
-                                 json=data, timeout=(API_CONNECT_TIMEOUT, API_READ_TIMEOUT))
+            resp = requests.post(url, headers=headers, json=data, timeout=(API_CONNECT_TIMEOUT, API_READ_TIMEOUT))
             resp.raise_for_status()
             return resp.json()
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             last_error = e
             if attempt < MAX_API_RETRIES:
                 print(f"  ⏳ API retry {attempt}/{MAX_API_RETRIES}...", file=sys.stderr)
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
     raise last_error or RuntimeError("API call failed")
+
 
 # ── Shell Tool ──────────────────────────────────────────────────────────────
 def execute_shell(cmd: str) -> str:
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=SHELL_TIMEOUT)
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=SHELL_TIMEOUT, check=False)
         return (r.stdout + r.stderr)[:TOOL_OUTPUT_MAX_CHARS]
     except subprocess.TimeoutExpired:
         return f"Error: Command timed out after {SHELL_TIMEOUT}s: {cmd[:200]}"
     except Exception as e:
         return f"Error: {e}"
 
+
 # ── Vision Tool ─────────────────────────────────────────────────────────────
-def execute_vision(prompt: str = '', path: str = '', delay: int = 0) -> str:
+def execute_vision(prompt: str = "", path: str = "", delay: int = 0) -> str:
     # Vision calls OpenRouter directly; reuse the OPENROUTER_KEY from .env.
     api_key = os.environ.get("OPENROUTER_KEY", "")
 
     if not path:
         ts = int(time.time())
-        path = f'/tmp/vision_screenshot_{ts}.png'
-        delay_args = ['-d', str(delay)] if delay > 0 else []
+        path = f"/tmp/vision_screenshot_{ts}.png"
+        delay_args = ["-d", str(delay)] if delay > 0 else []
         try:
-            subprocess.run(['gnome-screenshot', '-f', path] + delay_args, capture_output=True, timeout=15)
+            subprocess.run(["gnome-screenshot", "-f", path] + delay_args, capture_output=True, timeout=15, check=False)
         except BaseException:
             try:
-                subprocess.run(['scrot'] + (['-d', str(delay)] if delay else []) + [path], capture_output=True, timeout=15)
+                subprocess.run(
+                    ["scrot"] + (["-d", str(delay)] if delay else []) + [path],
+                    capture_output=True,
+                    timeout=15,
+                    check=False,
+                )
             except BaseException:
                 return "Error: could not take screenshot"
         for _ in range(20):
@@ -329,14 +444,30 @@ def execute_vision(prompt: str = '', path: str = '', delay: int = 0) -> str:
     img_bytes, img_w, img_h = buf.getvalue(), *img.size
     img_kb = len(img_bytes) / 1024
 
-    prompt = prompt or "Describe what you see on this desktop screenshot. List any visible windows, applications, and key UI elements."
-    b64 = __import__('base64').b64encode(img_bytes).decode()
-    payload = {"model": VISION_MODEL, "messages": [{"role": "user", "content": [
-        {"type": "text", "text": prompt},
-        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-    ]}], "max_tokens": 500}
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
-               "HTTP-Referer": "https://github.com/adsoftware", "X-Title": "Micro Vision"}
+    prompt = (
+        prompt
+        or "Describe what you see on this desktop screenshot. List any visible windows, applications, and key UI elements."
+    )
+    b64 = __import__("base64").b64encode(img_bytes).decode()
+    payload = {
+        "model": VISION_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                ],
+            }
+        ],
+        "max_tokens": 500,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/adsoftware",
+        "X-Title": "Micro Vision",
+    }
     try:
         resp = requests.post(VISION_API_URL, json=payload, headers=headers, timeout=VISION_TIMEOUT)
         if resp.status_code != 200:
@@ -351,6 +482,7 @@ def execute_vision(prompt: str = '', path: str = '', delay: int = 0) -> str:
     except Exception as e:
         return f"Vision API error: {e}"
 
+
 # ── Fetch Webpage Tool ─────────────────────────────────────────────────────
 def execute_fetch_webpage(url: str) -> str:
     """Fetch a URL using Chromium CDP (JS rendering) with HTTP fallback."""
@@ -359,6 +491,7 @@ def execute_fetch_webpage(url: str) -> str:
         sys.path.insert(0, _mod_dir)
     try:
         from cdp_fetch import fetch_webpage as _cdp_fetch
+
         return _cdp_fetch(url)[:TOOL_OUTPUT_MAX_CHARS]
     except ImportError:
         return _legacy_http_fetch(url)[:TOOL_OUTPUT_MAX_CHARS]
@@ -375,11 +508,11 @@ def _legacy_http_fetch(url: str) -> str:
             self._skip = False
 
         def handle_starttag(self, tag, attrs):
-            if tag.lower() in ('script', 'style'):
+            if tag.lower() in ("script", "style"):
                 self._skip = True
 
         def handle_endtag(self, tag):
-            if tag.lower() in ('script', 'style'):
+            if tag.lower() in ("script", "style"):
                 self._skip = False
 
         def handle_data(self, data):
@@ -389,13 +522,13 @@ def _legacy_http_fetch(url: str) -> str:
                     self.parts.append(t)
 
         def get_text(self):
-            return '\n'.join(self.parts)
+            return "\n".join(self.parts)
 
     try:
         resp = _get_session().get(url, timeout=30)
         resp.raise_for_status()
-        ct = resp.headers.get('content-type', '').lower()
-        if 'html' in ct:
+        ct = resp.headers.get("content-type", "").lower()
+        if "html" in ct:
             ext = _TextExtractor()
             ext.feed(resp.text)
             text = ext.get_text()
@@ -432,7 +565,6 @@ def execute_ddg_search(query: str) -> str:
     return "\n\n".join(out)
 
 
-
 # ── Browser Action Tool ────────────────────────────────────────────────────
 def execute_browser_action(action: str, **kwargs) -> str:
     """Interactive browser control via CDP (click, type, login, etc.)."""
@@ -441,6 +573,7 @@ def execute_browser_action(action: str, **kwargs) -> str:
         sys.path.insert(0, _mod_dir)
     try:
         from browser_action import browser_action as _ba
+
         result = _ba(action, **kwargs)
         return result[:TOOL_OUTPUT_MAX_CHARS]
     except ImportError:
@@ -458,18 +591,27 @@ TOOL_EXECUTORS = {
     "ddg_search": execute_ddg_search,
 }
 
+
 # ── Tool Call Handler ───────────────────────────────────────────────────────
 def summarize(name: str, args: dict) -> str:
-    key = {"shell": "cmd", "vision": "prompt", "fetch_webpage": "url", "ddg_search": "query", "browser_action": "action"}.get(name, "")
+    key = {
+        "shell": "cmd",
+        "vision": "prompt",
+        "fetch_webpage": "url",
+        "ddg_search": "query",
+        "browser_action": "action",
+    }.get(name, "")
     raw = args.get(key, json.dumps(args, ensure_ascii=True)) if key else json.dumps(args, ensure_ascii=True)
     s = " ".join(raw.split())
     return s[:100] + "..." if len(s) > 100 else s or "(no details)"
+
 
 # Key aliases accepted from the model. Models often send intuitive names like
 # "command" for the shell tool even though the declared parameter is "cmd".
 _TOOL_ARG_ALIASES = {
     "shell": {"command": "cmd"},
 }
+
 
 def _normalize_tool_args(name: str, args: dict) -> dict:
     """Map model-provided alias keys onto the executor's declared parameter names."""
@@ -478,6 +620,7 @@ def _normalize_tool_args(name: str, args: dict) -> dict:
             args[canonical] = args.pop(alias)
     return args
 
+
 def handle_tool_calls(tool_calls: list, messages: list) -> list:
     for tc in tool_calls:
         name, raw = tc["function"]["name"], tc["function"]["arguments"]
@@ -485,14 +628,18 @@ def handle_tool_calls(tool_calls: list, messages: list) -> list:
             args = json.loads(raw, strict=False)
         except json.JSONDecodeError:
             args = {}
-            for fix in [lambda s: s.replace('\n','\\n'), lambda s: s + '"' if s.count('"')%2 else s]:
-                try: args = json.loads(fix(raw), strict=False); break
-                except: pass
+            for fix in [lambda s: s.replace("\n", "\\n"), lambda s: s + '"' if s.count('"') % 2 else s]:
+                try:
+                    args = json.loads(fix(raw), strict=False)
+                    break
+                except Exception:
+                    pass
             if not args:
                 m = re.search(r'"(cmd|command)"\s*:\s*"', raw)
                 if name == "shell" and m:
                     p, p_end = m.end(), m.end()
-                    while p_end < len(raw) and not (raw[p_end]=='"' and (p_end==0 or raw[p_end-1]!='\\')): p_end+=1
+                    while p_end < len(raw) and not (raw[p_end] == '"' and (p_end == 0 or raw[p_end - 1] != "\\")):
+                        p_end += 1
                     args = {m.group(1): raw[p:p_end]}
         args = _normalize_tool_args(name, args)
         print(f"  Step: {name}: {summarize(name, args)}")
@@ -507,6 +654,7 @@ def handle_tool_calls(tool_calls: list, messages: list) -> list:
             output = f"Error: tool '{name}' failed: {e}"
         messages.append({"role": "tool", "tool_call_id": tc["id"], "content": output})
     return messages
+
 
 # ── Break Key ───────────────────────────────────────────────────────────────
 def _check_break_key() -> bool:
@@ -528,17 +676,21 @@ def _check_break_key() -> bool:
         os.set_blocking(fd, False)
         try:
             ready, _, _ = select.select([fd], [], [], 0)
-            if ready and b'\x01' in os.read(fd, 4096):
+            if ready and b"\x01" in os.read(fd, 4096):
                 _break_requested = True
-                while os.read(fd, 4096): pass
+                while os.read(fd, 4096):
+                    pass
         finally:
             os.set_blocking(fd, was_blocking)
     except (ValueError, BlockingIOError, OSError, termios.error):
         pass
     finally:
-        try: termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        except: pass
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except Exception:
+            pass
     return _break_requested
+
 
 # ── Main Loop ───────────────────────────────────────────────────────────────
 def _loop(messages: list):
@@ -558,15 +710,17 @@ def _loop(messages: list):
                 print(f"\nAgent step: {text.strip()}")
                 logger.log_agent(f"[thinking] {text.strip()}")
             messages = handle_tool_calls(choice["tool_calls"], messages)
-            if _check_break_key(): break
+            if _check_break_key():
+                break
             continue
 
         content = choice.get("content") or ""
         if content.strip():
-            #print("  ✅ AI response received", file=sys.stderr)
+            # print("  ✅ AI response received", file=sys.stderr)
             print("\nAgent:", content, "\n")
             logger.log_agent(content)
         break
+
 
 def parse_args():
     """Parse CLI args. Provider flags like -zai / -ollama select the provider."""
@@ -577,18 +731,26 @@ def parse_args():
     # Add a -<provider> flag for each known provider (e.g. -zai, -ollama)
     for name in PROVIDERS:
         parser.add_argument(
-            f"-{name}", action="store_const", const=name, dest="provider",
+            f"-{name}",
+            action="store_const",
+            const=name,
+            dest="provider",
             help=f"use the {name} provider",
         )
     # Long form aliases for readability (-zai == --zai)
     for name in PROVIDERS:
         parser.add_argument(
-            f"--{name}", action="store_const", const=name, dest="provider",
+            f"--{name}",
+            action="store_const",
+            const=name,
+            dest="provider",
             help=argparse.SUPPRESS,
         )
     # Also allow explicit --provider <name>
     parser.add_argument(
-        "--provider", dest="provider_name", choices=list(PROVIDERS),
+        "--provider",
+        dest="provider_name",
+        choices=list(PROVIDERS),
         help="select provider by name (e.g. --provider ollama)",
     )
     args = parser.parse_args()
@@ -609,25 +771,33 @@ def main():
 
     mode = "thinking" if THINKING_ENABLED else "no-think"
     p = get_provider()
-    #print(f"Agent ready. Type your message (or 'quit' to exit).")
-    #print(f"  Press Ctrl+A during tool execution to interrupt.")
-    #print(f"  Press Ctrl+C to exit.")
+    # print(f"Agent ready. Type your message (or 'quit' to exit).")
+    # print(f"  Press Ctrl+A during tool execution to interrupt.")
+    # print(f"  Press Ctrl+C to exit.")
     print(f"  Provider: {PROVIDER} | Model: {p['model']} | Mode: {mode}")
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT.format(current_date=__import__("datetime").datetime.now().strftime("%A, %Y-%m-%d"))}]
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT.format(
+                current_date=__import__("datetime").datetime.now().strftime("%A, %Y-%m-%d")
+            ),
+        }
+    ]
     try:
         while True:
             try:
                 inp = input("\033[1;31mYou: ").strip()
                 print("\033[0m", end="")  # reset color after user input
-                if inp.lower() in ('quit', 'exit', 'bye'):
+                if inp.lower() in ("quit", "exit", "bye"):
                     print("Goodbye!")
                     logger.log_system("User exited")
                     break
-                if not inp: continue
+                if not inp:
+                    continue
                 messages.append({"role": "user", "content": inp})
                 logger.log_user(inp)
-                #print("  → Sending request to DeepSeek AI...", file=sys.stderr)
+                # print("  → Sending request to DeepSeek AI...", file=sys.stderr)
                 _loop(messages)
 
                 if _break_requested:
@@ -657,6 +827,7 @@ def main():
         # Stop headless Chromium if we started it (frees ~380 MB)
         try:
             from cdp_fetch import shutdown_chromium
+
             shutdown_chromium()
         except Exception:
             pass
