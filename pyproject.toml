@@ -46,13 +46,14 @@ Issues = "https://github.com/adsoftwareGPT/micro-agent/issues"
 # (e.g. `from cdp_fetch import fetch_webpage`), so they must be installed as
 # flat modules, not nested under a package.
 [tool.hatch.build.targets.wheel]
-packages = ["micro.py", "cdp_fetch.py", "browser_action.py"]
+packages = ["micro.py", "cdp_fetch.py", "browser_action.py", "deletion_guard.py"]
 
 [tool.hatch.build.targets.sdist]
 include = [
     "micro.py",
     "cdp_fetch.py",
     "browser_action.py",
+    "deletion_guard.py",
     ".env.example",
     "README.md",
     "LICENSE",
@@ -73,7 +74,7 @@ include = [
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-include = ["micro.py", "cdp_fetch.py", "browser_action.py", "tests/*.py"]
+include = ["micro.py", "cdp_fetch.py", "browser_action.py", "deletion_guard.py", "tests/*.py"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "C4"]
