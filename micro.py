@@ -149,7 +149,7 @@ SYSTEM_PROMPT = (
 # installed via .deb to /usr/share/micro-agent (read-only for normal users).
 LOG_DIR = os.path.dirname(_desired_resource("chat.log"))
 LOG_BASE = os.path.join(LOG_DIR, "chat")
-LOG_KEEP = 3  # keep up to 3 timestamped log files
+LOG_KEEP = 50  # keep up to 50 timestamped log files
 
 
 def _ts_path(suffix: str = "") -> str:
@@ -325,7 +325,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "browser_action",
-            "description": "Control the browser interactively: click elements, type text, navigate, scroll, take screenshots, wait for conditions, check browser state, and LOG IN to websites using Google OAuth. Actions: navigate, click, type, scroll, eval (run JS), wait, screenshot, get_state, login_google. The login_google action handles the full Google Identity Services flow automatically (FedCM + popup + redirect). For infinite-scroll feeds (X.com, Reddit, Threads): call `eval` to extract visible posts, then `scroll` (no args = one viewport down), then `eval` again — own the loop yourself, dedup by post permalink, and stop when several consecutive scrolls yield no new posts.",
+            "description": "Control the browser interactively: click elements, type text, navigate, scroll, take screenshots, wait for conditions, check browser state, and LOG IN to websites using Google OAuth. Actions: navigate, click, type, scroll, eval (run JS), wait, screenshot, get_state, login_google, accept_cookies. The login_google action handles the full Google Identity Services flow automatically (FedCM + popup + redirect). The accept_cookies action auto-clicks the accept/agree button on cookie/consent banners (handles English + German, common consent SDKs); call it defensively right after `navigate` to dismiss pop-ups. For infinite-scroll feeds (X.com, Reddit, Threads): call `eval` to extract visible posts, then `scroll` (no args = one viewport down), then `eval` again — own the loop yourself, dedup by post permalink, and stop when several consecutive scrolls yield no new posts.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -341,6 +341,7 @@ TOOLS = [
                             "screenshot",
                             "get_state",
                             "login_google",
+                            "accept_cookies",
                         ],
                         "description": "The browser action to perform",
                     },

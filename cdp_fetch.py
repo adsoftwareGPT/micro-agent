@@ -18,7 +18,10 @@ import time
 import urllib.request
 
 CDP_PORT = 9222
-CDP_HOST = "127.0.0.1"
+# Probe candidates in order. A snap Chromium on a multi-tenant host may
+# only succeed on IPv6 ([::1]) when another service has grabbed 127.0.0.1.
+CDP_HOST_CANDIDATES = ["127.0.0.1", "[::1]", "localhost"]
+_CDP_HOST = None  # set by _cdp_version() once a genuine Chromium is found
 FETCH_TIMEOUT = 45  # increased — real rendering + bot checks take longer
 RENDER_WAIT = 3  # wait after load for JS to execute
 CLOUDFLARE_WAIT = 10  # extra wait if Cloudflare challenge detected
@@ -35,13 +38,54 @@ except ImportError:
     _HAS_WS = False
 
 
+def _cdp_version():
+    """Find the first host whose /json/version is a *genuine* Chromium.
+
+    Returns (host, parsed_json) or (None, None). A port can answer with
+    HTTP 200 yet not be Chromium (e.g. another tool returning a JSON
+    'unauthorized' error), so we validate the presence of the 'Browser'
+    field rather than just checking for any HTTP response.
+    """
+    global _CDP_HOST
+
+    # Re-validate the cached host first.
+    if _CDP_HOST:
+        try:
+            with urllib.request.urlopen(
+                f"http://{_CDP_HOST}:{CDP_PORT}/json/version", timeout=2
+            ) as r:
+                data = json.loads(r.read())
+            if "Browser" in data:
+                return _CDP_HOST, data
+        except Exception:
+            _CDP_HOST = None
+
+    for host in CDP_HOST_CANDIDATES:
+        try:
+            with urllib.request.urlopen(
+                f"http://{host}:{CDP_PORT}/json/version", timeout=2
+            ) as r:
+                data = json.loads(r.read())
+        except Exception:
+            continue
+        if "Browser" in data:
+            _CDP_HOST = host
+            return host, data
+        # We got *some* HTTP response that isn't Chromium — likely a
+        # different service squatting on this port. Warn so it's visible,
+        # then keep probing other hosts.
+        snippet = data.get("error") or data.get("detail") or "non-Chromium JSON"
+        print(
+            f"cdp_fetch: warning: port {CDP_PORT} on {host} answered "
+            f"({snippet!r}); not Chromium — trying other hosts...",
+            file=sys.stderr,
+        )
+    return None, None
+
+
 def _cdp_ping():
-    """Quick check if Chromium CDP is responding."""
-    try:
-        urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json/version", timeout=2)
-        return True
-    except Exception:
-        return False
+    """Quick check if Chromium CDP is responding with a valid browser."""
+    return _cdp_version()[0] is not None
 
 
 CHROMIUM_BIN_CANDIDATES = [
@@ -223,8 +267,11 @@ def _cdp_fetch(url, timeout=FETCH_TIMEOUT):
     if not _HAS_WS:
         return None
 
+    if not _cdp_ping():
+        return None
+    # _cdp_ping() populated _CDP_HOST with the validated Chromium host.
     try:
-        r = urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json", timeout=5)
+        r = urllib.request.urlopen(f"http://{_CDP_HOST}:{CDP_PORT}/json", timeout=5)
         pages = json.loads(r.read())
         page_ws = next(
             (p["webSocketDebuggerUrl"] for p in pages if p["type"] == "page"),

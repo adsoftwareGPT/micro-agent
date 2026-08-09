@@ -849,6 +849,148 @@ def login_with_google(
             pass
 
 
+# ── Cookie/consent banner auto-accept ───────────────────────────────────────
+
+# Scans the page for a cookie/consent pop-up button and clicks the
+# most prominent "accept / agree" one. Bilingual (EN + DE). The matcher:
+#   - collects button-like candidates in the document, same-origin iframes,
+#     and the shadow roots of well-known consent SDKs (OneTrust, Cookiebot,
+#     SourcePoint, TrustArc, Didomi, Quantcast);
+#   - scores each visible, enabled candidate by its text/aria-label;
+#   - prefers "all" / "alle" (accept-all) with +2, then +1 for any accept word;
+#   - skips anything containing a reject/manage word (decline, ablehnen,
+#     nur notwendige, settings, einstellungen, ...);
+#   - picks the highest score, scrolls it into view, and Python clicks the
+#     viewport center via Input domain (reliable for React/Vue SPA buttons).
+_COOKIE_CONSENT_JS = """
+(function () {
+  /* Accept phrasing — English + German. "all"/"alle" variants get priority. */
+  var YES = ["accept all", "allow all", "agree to all", "accept", "allow",
+             "agree", "i agree", "got it", "got it!", "okay", "ok", "consent",
+             "confirm", "yes", "sure", "i accept", "enable all", "continue",
+             "alle akzeptieren", "alle erlauben", "allen zustimmen",
+             "akzeptieren", "erlauben", "zustimmen", "einverstanden",
+             "verstanden", "zulassen", "ich stimme zu", "akzeptiere",
+             "einverstanden sein", "ja", "weiter"];
+  /* Reject/manage phrasing — must never click these. */
+  var NO  = ["reject", "decline", "deny", "refuse", "block all", "block",
+             "necessary only", "only necessary", "only essential",
+             "essential only", "required only", "manage", "settings",
+             "preferences", "customize", "options", "configure",
+             "show purposes", "learn more", "more info", "details",
+             "change preferences", "read more", "ablehnen", "verweigern",
+             "nur notwendige", "nur erforderliche", "benötigte",
+             "blockieren", "einstellungen", "verwalten", "anpassen",
+             "mehr erfahren", "optionen", "details anzeigen", "änderungen"];
+  var PRIOR = ["all", "alle"]; /* +2 bonus for accept-ALL wording */
+
+  function norm(s) {
+    return (s || "").toLowerCase().replace(/\\s+/g, " ").trim();
+  }
+  function hasAny(t, arr) {
+    for (var i = 0; i < arr.length; i++) {
+      if (t.indexOf(arr[i]) !== -1) return true;
+    }
+    return false;
+  }
+  function visible(el) {
+    if (!el || el.disabled) return false;
+    var r = el.getBoundingClientRect();
+    if (!r || r.width <= 2 || r.height <= 2) return false;
+    var st = window.getComputedStyle(el);
+    if (st.display === "none" || st.visibility === "hidden" || st.opacity === "0") return false;
+    /* Off-screen (folded) banners: accept if horizontally in view & near top. */
+    return true;
+  }
+  function consider(el) {
+    if (!visible(el)) return;
+    var t = norm(el.textContent || el.value || el.getAttribute("aria-label") || "");
+    if (!t || t.length === 0 || t.length > 60) return;
+    if (hasAny(t, NO)) return;
+    var score = 0;
+    if (hasAny(t, PRIOR)) score += 2;
+    if (hasAny(t, YES)) score += 1;
+    if (score === 0) return;
+    if (score > bestScore) { bestScore = score; best = el; }
+  }
+  function walk(root) {
+    try {
+      var nodes = root.querySelectorAll(
+        "button, a, [role='button'], [role='link'], input[type='submit'], input[type='button'], summary"
+      );
+      for (var i = 0; i < nodes.length; i++) consider(nodes[i]);
+    } catch (e) {}
+  }
+
+  var best = null, bestScore = 0;
+  walk(document);
+  /* Same-origin iframes (some SDKs render the banner in an iframe). */
+  try {
+    var frames = document.querySelectorAll("iframe");
+    for (var i = 0; i < frames.length; i++) {
+      try { var d = frames[i].contentDocument; if (d) walk(d); } catch (e) {}
+    }
+  } catch (e) {}
+  /* Shadow roots of common consent SDKs. */
+  var shadowHosts = [
+    "#onetrust-banner-sdk", "#onetrust-consent-sdk",
+    "#CybotCookiebotDialog", "#cookiebot", "cookiebot",
+    "#sp_message_container", "[id^='sp_message_container_']",
+    "#truste-consent-track", "#consent_blackbar",
+    "#didomi-host", ".didomi-host",
+    ".qc-cmp2-container", "[id^='qc-cmp2']"
+  ];
+  for (var i = 0; i < shadowHosts.length; i++) {
+    var h = document.querySelector(shadowHosts[i]);
+    if (h && h.shadowRoot) walk(h.shadowRoot);
+  }
+
+  if (!best) return JSON.stringify({ found: false });
+  best.scrollIntoView({ block: "center" });
+  var rect = best.getBoundingClientRect();
+  var label = (best.textContent || best.value || "").trim().substring(0, 60);
+  return JSON.stringify({
+    found: true,
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+    label: label,
+    score: bestScore
+  });
+})()
+"""
+
+
+def action_accept_cookies():
+    """Auto-accept cookie/consent pop-ups (German + English).
+
+    A heuristic one-shot: scans the document, same-origin iframes, and the
+    shadow roots of common consent SDKs (OneTrust, Cookiebot, SourcePoint,
+    TrustArc, Didomi, Quantcast) for the most prominent accept/agree button
+    — preferring "accept all" / "alle akzeptieren" — and clicks it with a
+    real mouse event. Idempotent: returns "no banner found" when nothing
+    matches, so the agent can call it defensively right after `navigate`.
+    """
+    if not _ensure_chromium():
+        return "Error: Chromium not available"
+    ws_url = _get_page_ws()
+    if not ws_url:
+        return "Error: No browser page found"
+    s = CDPSession(ws_url)
+    try:
+        raw = s.eval(_COOKIE_CONSENT_JS)
+        if not raw:
+            return "No cookie banner detected."
+        res = json.loads(raw) if isinstance(raw, str) else raw
+        if not res.get("found"):
+            return "No cookie banner detected."
+        s.click_at(res["x"], res["y"])
+        time.sleep(0.6)
+        label = (res.get("label") or "").strip()
+        return f"Accepted cookie banner: clicked '{label}'."
+    finally:
+        s.close()
+
+
 # ── Main dispatcher ────────────────────────────────────────────────────────
 
 
@@ -865,6 +1007,7 @@ def browser_action(action, **kwargs):
         eval          - Run JS expression in page (script), return result as string
         get_state     - Get current browser state
         login_google  - Log in via Google OAuth (url, email, login_url, btn_text)
+        accept_cookies - Auto-click the accept/agree button on cookie banners (EN + DE)
     """
     if not _ensure_chromium():
         return "Error: Chromium not available"
@@ -897,6 +1040,7 @@ def browser_action(action, **kwargs):
             account_email=kwargs.get("email"),
             wait_after_login=kwargs.get("wait", 12),
         ),
+        "accept_cookies": lambda: action_accept_cookies(),
     }
 
     fn = actions.get(action)
