@@ -70,27 +70,32 @@ def _load_env_file():
 _load_env_file()
 
 # ── Config ──────────────────────────────────────────────────────────────────
-# Set PROVIDER to "zai" or "deepseek" or "openrouter" or "opencode" or "ollama"
-# Override via the PROVIDER=... line in your .env or the CLI flag (-zai, -ollama, …).
+# Set PROVIDER to "zai", "mistral", "deepseek", "openrouter", "opencode" or "ollama"
+# Override via the PROVIDER=... line in your .env or the CLI flag (-zai, -mistral, …).
 PROVIDER = os.environ.get("PROVIDER", "deepseek")
 
 # Per-provider defaults. Each can be overridden by env vars in .env:
-#   <NAME>_URL     — endpoint to use
-#   <NAME>_MODEL   — model name
-#   <NAME>_KEY     — API key (always from env, never baked in)
+#   <NAME>_URL              — endpoint to use
+#   <NAME>_MODEL            — model name
+#   <NAME>_KEY              — API key (always from env, never baked in)
+#   <NAME>_SUPPORTS_THINKING — set to "1"/"true" only if the provider accepts the
+#                              Z.ai/GLM "thinking" field; strict providers (Mistral)
+#                              return HTTP 422 on unknown top-level fields.
 # Example .env:  OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
 PROVIDERS = {
     name: {
         "url": os.environ.get(f"{name.upper()}_URL", url),
         "model": os.environ.get(f"{name.upper()}_MODEL", model),
         "key": os.environ.get(f"{name.upper()}_KEY", ""),
+        "supports_thinking": os.environ.get(f"{name.upper()}_SUPPORTS_THINKING", "1" if thinking else "0") in ("1", "true", "yes", "on"),
     }
-    for name, url, model in [
-        ("zai", "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-5.2"),
-        ("deepseek", "https://api.deepseek.com/chat/completions", "deepseek-v4-flash"),
-        ("openrouter", "https://openrouter.ai/api/v1/chat/completions", "xiaomi/mimo-v2.5"),
-        ("opencode", "https://opencode.ai/zen/v1/chat/completions", "deepseek-v4-flash-free"),
-        ("ollama", "http://localhost:11434/v1/chat/completions", "glm-5.2:cloud"),
+    for name, url, model, thinking in [
+        ("zai", "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-5.2", True),
+        ("mistral", "https://api.mistral.ai/v1/chat/completions", "mistral-small-latest", False),
+        ("deepseek", "https://api.deepseek.com/chat/completions", "deepseek-v4-flash", False),
+        ("openrouter", "https://openrouter.ai/api/v1/chat/completions", "xiaomi/mimo-v2.5", False),
+        ("opencode", "https://opencode.ai/zen/v1/chat/completions", "deepseek-v4-flash-free", False),
+        ("ollama", "http://localhost:11434/v1/chat/completions", "glm-5.2:cloud", False),
     ]
 }
 
@@ -413,7 +418,10 @@ def call_llm(messages, tools=None, tool_choice="auto", model=None, api_key=None)
         api_key = p["key"]
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     data = {"model": model, "messages": messages, "tools": tools, "tool_choice": tool_choice, "max_tokens": MAX_TOKENS}
-    data["thinking"] = {"type": "enabled" if THINKING_ENABLED else "disabled"}
+    # The "thinking" field is a Z.ai/GLM extension; strict providers (Mistral)
+    # reject unknown top-level fields with HTTP 422. Send it only when supported.
+    if p.get("supports_thinking"):
+        data["thinking"] = {"type": "enabled" if THINKING_ENABLED else "disabled"}
     last_error = None
     for attempt in range(1, MAX_API_RETRIES + 1):
         try:

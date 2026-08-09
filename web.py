@@ -111,8 +111,11 @@ def call_llm_stream(messages, tools, tool_choice):
         "tool_choice": tool_choice,
         "max_tokens": MAX_TOKENS,
         "stream": True,
-        "thinking": {"type": "enabled" if THINKING_ENABLED else "disabled"},
     }
+    # The "thinking" field is a Z.ai/GLM extension; Mistral and other strict
+    # providers 422 on unknown top-level fields. Send it only when supported.
+    if p.get("supports_thinking"):
+        body["thinking"] = {"type": "enabled" if THINKING_ENABLED else "disabled"}
     resp = requests.post(
         p["url"], headers=headers, json=body, stream=True,
         timeout=(API_CONNECT_TIMEOUT, API_READ_TIMEOUT),
