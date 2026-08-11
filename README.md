@@ -59,11 +59,21 @@ micro-agent -mistral
 micro-agent -ollama          # local Ollama
 ```
 
+### Web UI
+
+The same agent also runs in a browser-based chat UI (stdlib only, no extra deps):
+
+```bash
+python3 web.py               # serves on http://localhost:5555
+python3 web.py --port 8080   # custom port
+```
+
 ## Project Layout
 
 | File                  | Purpose                                     |
 | --------------------- | ------------------------------------------- |
 | `micro.py`            | Main agent loop, tools, providers           |
+| `web.py`              | Browser-based chat UI (port 5555)            |
 | `browser_action.py`   | CDP browser primitives                      |
 | `cdp_fetch.py`        | JS-rendered webpage fetcher                 |
 | `build-deb.sh`        | Builds a Debian `.deb` package              |
