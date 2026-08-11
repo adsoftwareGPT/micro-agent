@@ -38,7 +38,6 @@ from micro import (
     TOOL_EXECUTORS,
     summarize,
     _normalize_tool_args,
-    _recent_user_messages,
     _UNTRUSTED_PROVENANCE_BANNER,
     _UNTRUSTED_PROVENANCE_FOOTER,
     MAX_TOOL_LOOPS,
@@ -204,10 +203,6 @@ def run_tool(name, args, messages):
     if not fn:
         return f"Unknown tool: {name}"
     try:
-        if name == "shell":
-            # Pass recent genuine user messages so the deletion guard can do
-            # its Tier B intent check (see deletion_guard.py + repo memory).
-            return fn(_user_msgs=_recent_user_messages(messages), **args)
         return fn(**args)
     except TypeError as e:
         return f"Error: bad arguments for tool '{name}': {e} (received {summarize(name, args)})"
