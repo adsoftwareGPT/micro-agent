@@ -4,7 +4,9 @@
 !.env.example
 
 # Chat logs (rolling runtime artifacts)
+# All session logs live under history/ now (one rolling file per session).
 chat.*.log.txt
+history/
 
 # Python
 __pycache__/

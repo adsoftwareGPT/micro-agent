@@ -66,7 +66,8 @@ def _system_message() -> dict:
     return {
         "role": "system",
         "content": SYSTEM_PROMPT.format(
-            current_date=datetime.datetime.now().strftime("%A, %Y-%m-%d")
+            current_date=datetime.datetime.now().strftime("%A, %Y-%m-%d"),
+            history_dir=micro.LOG_DIR,
         ),
     }
 
@@ -241,6 +242,7 @@ def run_agent_turn(messages):
                 if delta.get("tool_calls"):
                     _merge_tool_calls(tc_acc, delta["tool_calls"])
         except Exception as e:
+            micro.get_logger().log_system(f"LLM call failed: {e}")
             yield {"type": "error", "message": f"LLM call failed: {e}"}
             return
 
@@ -256,6 +258,7 @@ def run_agent_turn(messages):
             # The tokens we just streamed were intermediate "thinking" text,
             # not the final answer — tell the UI to demote that bubble.
             if content.strip():
+                micro.get_logger().log_agent(f"[thinking] {content.strip()}")
                 yield {"type": "demote"}
             for tco in tool_calls:
                 name = tco["function"]["name"]
@@ -266,11 +269,14 @@ def run_agent_turn(messages):
                     "summary": summarize(name, args),
                 }
                 output = run_tool(name, args, messages)
+                micro.get_logger().log_system(f"tool: {name} — {summarize(name, args)}")
                 wrapped = _UNTRUSTED_PROVENANCE_BANNER + output + _UNTRUSTED_PROVENANCE_FOOTER
                 messages.append({"role": "tool", "tool_call_id": tco["id"], "content": wrapped})
             continue
 
         # No tool calls → final answer. (Tokens were already streamed.)
+        if content.strip():
+            micro.get_logger().log_agent(content)
         yield {"type": "done"}
         return
 
