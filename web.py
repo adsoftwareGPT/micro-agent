@@ -238,7 +238,7 @@ def run_agent_turn(messages):
                     _merge_tool_calls(tc_acc, delta["tool_calls"])
         except Exception as e:
             micro.get_logger().log_system(f"LLM call failed: {e}")
-            yield {"type": "error", "message": f"LLM call failed: {e}"}
+            yield {"type": "error_evt", "message": f"LLM call failed: {e}"}
             return
 
         content = "".join(content_parts)
@@ -282,7 +282,7 @@ def start_turn(sid: str, user_text: str):
 
     def worker():
         if not s["lock"].acquire(blocking=False):
-            broadcast(sid, {"type": "error", "message": "A turn is already running."})
+            broadcast(sid, {"type": "error_evt", "message": "A turn is already running."})
             broadcast(sid, {"type": "done"})
             return
         try:
@@ -291,7 +291,7 @@ def start_turn(sid: str, user_text: str):
             for ev in run_agent_turn(s["messages"]):
                 broadcast(sid, ev)
         except Exception as e:
-            broadcast(sid, {"type": "error", "message": str(e)})
+            broadcast(sid, {"type": "error_evt", "message": str(e)})
             # Defensive: drop a trailing failed user message so history stays sane.
             if len(s["messages"]) > 1 and s["messages"][-1].get("role") == "user":
                 s["messages"].pop()
